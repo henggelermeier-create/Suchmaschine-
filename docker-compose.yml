@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kauvio_postgres
+    environment:
+      POSTGRES_DB: kauvio
+      POSTGRES_USER: kauvio
+      POSTGRES_PASSWORD: kauvio123
+    volumes:
+      - kauvio_postgres_data_v40:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d
+
+redis:
+  image: redis:7-alpine
+  container_name: kauvio_redis
+  command: redis-server --requirepass redis-kauvio-123 --save "" --appendonly no

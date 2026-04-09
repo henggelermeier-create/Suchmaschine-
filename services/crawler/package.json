@@ -1,0 +1,12 @@
+{
+  "name": "kauvio-crawler",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node crawler.mjs"
+  },
+  "dependencies": {
+    "jsdom": "^24.1.1",
+    "pg": "^8.12.0"
+  }
+}

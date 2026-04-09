@@ -1,0 +1,1 @@
+{"name":"kauvio-ai-service","private":true,"type":"module","scripts":{"start":"node ai_service.mjs"},"dependencies":{"express":"^4.19.2"}}
