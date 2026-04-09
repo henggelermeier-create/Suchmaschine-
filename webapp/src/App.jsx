@@ -74,11 +74,10 @@ function Header() {
 
 function Brand() {
   return (
-    <div className="brand">
-      <div className="logo">K</div>
-      <div>
-        <div className="brand-name">KAUVIO</div>
-        <div className="muted small">Swiss price compare</div>
+    <div className="brand brand-modern">
+      <div className="brand-wordmark">
+        <span className="brand-dot" />
+        <span className="brand-name">KAUVIO<span className="brand-point">.</span></span>
       </div>
     </div>
   )
@@ -193,6 +192,8 @@ export default function App() {
         await loadAdminProducts(adminQuery)
         const shops = await api('/api/admin/shop-sources').catch(() => ({ items: [] }))
         setShopSources(shops.items || [])
+        const health = await api('/api/admin/system-health').catch(() => ({ checks: null }))
+        setSystemHealth(health.checks || null)
       })
       .catch((err) => {
         if (err?.status === 401) {
@@ -206,7 +207,6 @@ export default function App() {
   }, [route, adminToken])
 
   const featured = useMemo(() => products.slice(0, 6), [products])
-  const trending = useMemo(() => products.slice(0, 3), [products])
   const adminMessageIsError = /fehler|nicht|ungültig|konnte.*nicht|failed|error/i.test(adminMessage || '')
 
   async function loadAdminProducts(q = '') {
@@ -467,7 +467,7 @@ export default function App() {
 
           {adminLoading && !dashboard ? <section className="panel"><p className="muted no-margin">Admin-Daten werden geladen…</p></section> : null}
 
-          <section className="panel">
+          <section className="panel go-live-panel">
             <div className="section-head">
               <div>
                 <h2>Go-Live Steuerung</h2>
@@ -475,13 +475,13 @@ export default function App() {
               </div>
             </div>
             <div className="stack">
-              <div className="row gap-sm wrap">
+              <div className="go-live-grid">
                 <button className="btn btn-small" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'fast')}>Fast Crawl alle Shops</button>
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'full')}>Full Crawl alle Shops</button>
                 <button className="btn btn-small btn-ghost" onClick={() => loadAdminProducts(adminQuery)}>Produkte aktualisieren</button>
                 <button className="btn btn-small btn-ghost" onClick={() => api('/api/admin/dashboard').then(setDashboard)}>Dashboard neu laden</button>
               </div>
-              <div className="row gap-sm wrap">
+              <div className="go-live-grid">
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('digitec', 'fast')}>Digitec Fast</button>
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('brack', 'fast')}>BRACK Fast</button>
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('interdiscount', 'fast')}>Interdiscount Fast</button>
@@ -510,10 +510,10 @@ export default function App() {
             <div className="section-head">
               <div>
                 <h2>System-Health</h2>
-                <p className="muted no-margin">Kurzer Backend-Check für Tabellen und Kernfunktionen.</p>
+                <p className="muted no-margin">Kleine Kontrolle.</p>
               </div>
             </div>
-            <div className="stats-grid stats-grid-6">
+            <div className="stats-grid stats-grid-6 system-health-compact">
               <Stat title="Produkte" value={systemHealth?.products?.ok ? systemHealth.products.count : 'Fehler'} />
               <Stat title="Offers" value={systemHealth?.offers?.ok ? systemHealth.offers.count : 'Fehler'} />
               <Stat title="Crawl Jobs" value={systemHealth?.crawl_jobs?.ok ? systemHealth.crawl_jobs.count : 'Fehler'} />
@@ -861,45 +861,18 @@ export default function App() {
     <div className="shell">
       <Header />
       <main className="content home-content">
-        <section className="hero-v2 home-hero">
-          <div className="hero-copy">
-            <div className="badge">Schweizer Preisvergleich</div>
-            <h1 className="hero-title">Finde den besten Preis in der Schweiz.</h1>
-            <p className="hero-text">Vergleiche Digitec, BRACK und Interdiscount auf einer Seite. Kauvio zeigt dir aktuelle Preise, den günstigsten Shop und direkte Kauf-Links ohne Umwege.</p>
-            <div className="hero-search-wrap">
-              <div className="search-shell hero-search">
-                <input
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="z. B. iPhone 15 Pro, AirPods Pro, MacBook Air"
-                />
-                <a className="btn hero-search-btn" href={searchCtaHref}>Preise vergleichen</a>
-              </div>
-              <div className="meta-row"><span>Schweiz</span><span>•</span><span>Digitec</span><span>•</span><span>BRACK</span><span>•</span><span>Interdiscount</span></div>
-            </div>
-            <div className="trust-strip">
-              <TrustBullet icon="✓">Direkte Shop-Links</TrustBullet>
-              <TrustBullet icon="↻">Automatisch aktualisierte Preise</TrustBullet>
-              <TrustBullet icon="⚑">Fokus auf Schweizer Shops</TrustBullet>
-            </div>
+        <section className="panel home-simple">
+          <div className="home-logo">KAUVIO<span className="brand-point">.</span></div>
+          <p className="home-subtitle">Preisvergleich Schweiz</p>
+          <h1 className="home-title">Suche. Vergleiche. Kaufe direkt.</h1>
+          <div className="search-shell hero-search home-search-centered">
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Produkt suchen, z. B. iPhone 15 Pro"
+            />
+            <a className="btn hero-search-btn" href={searchCtaHref}>Jetzt vergleichen</a>
           </div>
-
-          <div className="hero-side">
-            <div className="hero-card hero-card-pro hero-card-glow">
-              <div className="card-kicker">Günstigstes Live Angebot</div>
-              <div className="card-title">{trending[0]?.title || 'Warte auf den ersten Import'}</div>
-              <div className="deal-pill">{trending[0]?.offer_count > 1 ? `${trending[0].offer_count} Shops im Vergleich` : 'Live Preis'}</div>
-              <div className="card-label">Ab Preis</div>
-              <div className="price">{formatPrice(trending[0]?.price)}</div>
-              <div className="muted light">{trending[0]?.shop_name ? `Aktuell am günstigsten bei ${trending[0].shop_name}.` : 'Sobald die Crawler laufen, erscheinen hier aktuelle Schweizer Shoppreise und Top-Angebote.'}</div>
-            </div>
-          </div>
-        </section>
-
-        <section className="quick-stats-grid">
-          <div className="quick-stat panel"><span>Shop-Fokus</span><strong>Schweiz</strong></div>
-          <div className="quick-stat panel"><span>Verglichene Shops</span><strong>3 live</strong></div>
-          <div className="quick-stat panel"><span>Preislogik</span><strong>Günstigstes Angebot zuerst</strong></div>
         </section>
 
         <section className="panel featured-panel">
@@ -947,24 +920,6 @@ export default function App() {
                 </div>
               </a>
             ))}
-          </div>
-        </section>
-
-        <section className="info-grid">
-          <div className="panel info-card dark-panel">
-            <div className="eyebrow">Warum Kauvio</div>
-            <h3>Ein klarer Fokus auf Schweizer Shops.</h3>
-            <p>Statt unübersichtlicher Massenlisten bekommst du einen schlanken Vergleich mit direkter Entscheidungshilfe.</p>
-          </div>
-          <div className="panel info-card">
-            <div className="eyebrow">Wie aktuell sind die Preise?</div>
-            <h3>Klare Ergebnisse aus importierten Shop-Daten.</h3>
-            <p>So fühlt sich der Preisvergleich für Nutzer fast live an, ohne bei jeder Suche externe Shops anzufragen.</p>
-          </div>
-          <div className="panel info-card">
-            <div className="eyebrow">Go-Live bereit</div>
-            <h3>Klare Preise, direkte Weiterleitung und ein sauberer Live-Auftritt.</h3>
-            <p>Die Seite fokussiert auf klare Preise, direkte CTA und ein sauberes Schweizer Shop-Setup.</p>
           </div>
         </section>
 

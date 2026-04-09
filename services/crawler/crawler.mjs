@@ -1,5 +1,6 @@
 import { Pool } from "pg"
 import { JSDOM } from "jsdom"
+import { ensureCoreSchema } from "../../database/ensure_schema.mjs"
 
 function normalizeDbUrl(raw) {
   const fallback = `postgresql://${process.env.POSTGRES_USER || 'kauvio'}:${process.env.POSTGRES_PASSWORD || 'replace_me'}@postgres:5432/${process.env.POSTGRES_DB || 'kauvio'}`
@@ -726,11 +727,19 @@ async function processManualJobs() {
   }
 }
 
-setTimeout(() => { runAll('fast').catch(console.error) }, 5000)
-setTimeout(() => { runAll('full').catch(console.error) }, 15000)
-setInterval(() => { runAll('fast').catch(console.error) }, FAST_INTERVAL * 1000)
-setInterval(() => { runAll('full').catch(console.error) }, FULL_INTERVAL * 1000)
-setInterval(() => { processManualJobs().catch(console.error) }, 15000)
-setInterval(() => { processDiscoveryQueue().catch(console.error) }, 20000)
-processManualJobs().catch(console.error)
-processDiscoveryQueue().catch(console.error)
+async function startCrawler() {
+  await ensureCoreSchema(pool)
+  setTimeout(() => { runAll('fast').catch(console.error) }, 5000)
+  setTimeout(() => { runAll('full').catch(console.error) }, 15000)
+  setInterval(() => { runAll('fast').catch(console.error) }, FAST_INTERVAL * 1000)
+  setInterval(() => { runAll('full').catch(console.error) }, FULL_INTERVAL * 1000)
+  setInterval(() => { processManualJobs().catch(console.error) }, 15000)
+  setInterval(() => { processDiscoveryQueue().catch(console.error) }, 20000)
+  processManualJobs().catch(console.error)
+  processDiscoveryQueue().catch(console.error)
+}
+
+startCrawler().catch(err => {
+  console.error('[crawler] startup failed', err)
+  process.exit(1)
+})

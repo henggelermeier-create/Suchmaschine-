@@ -4,6 +4,7 @@ import path from 'path'
 import jwt from 'jsonwebtoken'
 import { Pool } from 'pg'
 import { fileURLToPath } from 'url'
+import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -341,22 +342,22 @@ app.get('/api/products', async (req, res) => {
   const sql = `
     SELECT
       p.slug, p.title, p.brand, p.category, p.ai_summary, p.deal_score,
-      MIN(o.price) AS price,
-      (ARRAY_AGG(o.shop_name ORDER BY o.price ASC, o.updated_at DESC))[1] AS shop_name,
-      COUNT(*)::int AS offer_count,
+      COALESCE(MIN(o.price), p.price) AS price,
+      COALESCE((ARRAY_AGG(o.shop_name ORDER BY o.price ASC, o.updated_at DESC))[1], p.shop_name) AS shop_name,
+      COUNT(o.*)::int AS offer_count,
       MAX(p.updated_at) AS updated_at
     FROM products p
-    JOIN product_offers o ON o.product_slug = p.slug AND COALESCE(o.is_hidden, false) = false
+    LEFT JOIN product_offers o ON o.product_slug = p.slug AND COALESCE(o.is_hidden, false) = false
     ${where}
-    GROUP BY p.slug, p.title, p.brand, p.category, p.ai_summary, p.deal_score
+    GROUP BY p.slug, p.title, p.brand, p.category, p.ai_summary, p.deal_score, p.price, p.shop_name
     ORDER BY updated_at DESC, price ASC NULLS LAST
     LIMIT 100
   `
   const result = await pool.query(sql, params)
-  await pool.query('INSERT INTO search_logs(query, result_count) VALUES ($1,$2)', [q, result.rows.length])
+  await pool.query('INSERT INTO search_logs(query, result_count) VALUES ($1,$2)', [q, result.rows.length]).catch(() => {})
   res.json({ items: result.rows.map(r => ({
     ...r,
-    price: Number(r.price),
+    price: r.price != null ? Number(r.price) : null,
     decision: r.deal_score >= 88 ? { label: 'Jetzt kaufen' } : r.deal_score >= 78 ? { label: 'Guter Kauf' } : { label: 'Live Preis' }
   })) })
 })
@@ -890,4 +891,11 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(distDir, 'index.html'))
 })
 
-app.listen(PORT, () => console.log(`kauvio webapp on ${PORT}`))
+ensureCoreSchema(pool)
+  .then(() => {
+    app.listen(PORT, () => console.log(`kauvio webapp on ${PORT}`))
+  })
+  .catch(err => {
+    console.error('DB schema bootstrap failed:', err)
+    process.exit(1)
+  })

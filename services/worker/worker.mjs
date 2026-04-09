@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
 
 function normalizeDbUrl(raw) {
   const fallback = `postgresql://${process.env.POSTGRES_USER || 'kauvio'}:${process.env.POSTGRES_PASSWORD || 'replace_me'}@postgres:5432/${process.env.POSTGRES_DB || 'kauvio'}`
@@ -27,5 +28,6 @@ async function cycle() {
     console.log('[worker] ok')
   } catch (err) { console.error(err) }
 }
+await ensureCoreSchema(pool)
 await cycle()
 setInterval(cycle, interval * 1000)
