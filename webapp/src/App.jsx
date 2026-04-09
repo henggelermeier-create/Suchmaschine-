@@ -77,7 +77,11 @@ function Brand() {
     <div className="brand brand-modern">
       <div className="brand-wordmark">
         <span className="brand-dot" />
+codex/fix-error
+        <span className="brand-name">KAUVIO<span className="brand-point">.</span></span>
+
         <span className="brand-name">KAUVIO</span>
+main
       </div>
     </div>
   )
@@ -359,6 +363,15 @@ export default function App() {
     }
   }
 
+  async function refreshAdminData() {
+    const refreshed = await api('/api/admin/dashboard')
+    setDashboard(refreshed)
+    await loadAdminProducts(adminQuery)
+    const health = await api('/api/admin/system-health').catch(() => ({ checks: null }))
+    setSystemHealth(health.checks || null)
+    setAdminMessage('Dashboard und Produkte aktualisiert.')
+  }
+
 
   async function planAssistant() {
     const plan = await api('/api/admin/assistant/plan', {
@@ -467,21 +480,21 @@ export default function App() {
 
           {adminLoading && !dashboard ? <section className="panel"><p className="muted no-margin">Admin-Daten werden geladen…</p></section> : null}
 
-          <section className="panel">
+          <section className="panel go-live-panel">
             <div className="section-head">
               <div>
                 <h2>Go-Live Steuerung</h2>
-                <p className="muted no-margin">Manuelle Crawl-Starts direkt aus dem internen Bereich.</p>
+                <p className="muted no-margin">Schnellaktionen für Crawl, Datenaktualisierung und Live-Kontrolle.</p>
               </div>
             </div>
             <div className="stack">
-              <div className="row gap-sm wrap">
+              <div className="go-live-grid go-live-grid-primary">
                 <button className="btn btn-small" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'fast')}>Fast Crawl alle Shops</button>
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'full')}>Full Crawl alle Shops</button>
-                <button className="btn btn-small btn-ghost" onClick={() => loadAdminProducts(adminQuery)}>Produkte aktualisieren</button>
-                <button className="btn btn-small btn-ghost" onClick={() => api('/api/admin/dashboard').then(setDashboard)}>Dashboard neu laden</button>
+                <button className="btn btn-small btn-ghost" onClick={refreshAdminData}>Produkte aktualisieren</button>
+                <button className="btn btn-small btn-ghost" onClick={refreshAdminData}>Dashboard neu laden</button>
               </div>
-              <div className="row gap-sm wrap">
+              <div className="go-live-grid go-live-grid-secondary">
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('digitec', 'fast')}>Digitec Fast</button>
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('brack', 'fast')}>BRACK Fast</button>
                 <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('interdiscount', 'fast')}>Interdiscount Fast</button>
@@ -862,7 +875,11 @@ export default function App() {
       <Header />
       <main className="content home-content">
         <section className="panel home-simple">
+codex/fix-error
+          <div className="home-logo">KAUVIO<span className="brand-point">.</span></div>
+
           <div className="home-logo">KAUVIO</div>
+ main
           <p className="home-subtitle">Preisvergleich Schweiz</p>
           <h1 className="home-title">Suche. Vergleiche. Kaufe direkt.</h1>
           <div className="search-shell hero-search home-search-centered">
