@@ -1,27 +1,12 @@
-import { Pool } from "pg"
 import { JSDOM } from "jsdom"
 import { ensureCoreSchema } from "../../database/ensure_schema.mjs"
+import { createPgPoolWithFallback } from "../../database/create_pg_pool.mjs"
 
-function normalizeDbUrl(raw) {
-  const fallback = `postgresql://${process.env.POSTGRES_USER || 'kauvio'}:${process.env.POSTGRES_PASSWORD || 'replace_me'}@postgres:5432/${process.env.POSTGRES_DB || 'kauvio'}`
-  const input = String(raw || fallback).trim()
-  try {
-    const url = new URL(input)
-    if (!url.hostname || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) {
-      url.hostname = process.env.POSTGRES_HOST || 'postgres'
-    }
-    if (!url.port) {
-      url.port = String(process.env.POSTGRES_PORT || 5432)
-    }
-    return url.toString()
-  } catch {
-    return fallback
-  }
-}
-
-const DATABASE_URL = normalizeDbUrl(process.env.DATABASE_URL)
+const { pool, connectionString: DATABASE_URL } = await createPgPoolWithFallback({
+  databaseUrl: process.env.DATABASE_URL,
+  serviceName: 'crawler'
+})
 console.log('[crawler] Using DB host from DATABASE_URL:', new URL(DATABASE_URL).hostname)
-const pool = new Pool({ connectionString: DATABASE_URL })
 
 const FAST_INTERVAL = Number(process.env.FAST_CRAWLER_INTERVAL_SECONDS || 600)
 const FULL_INTERVAL = Number(process.env.FULL_CRAWLER_INTERVAL_SECONDS || 3600)

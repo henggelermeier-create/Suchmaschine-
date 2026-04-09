@@ -15,6 +15,13 @@ dann stimmt das Postgres-Passwort nicht mit der `DATABASE_URL` überein.
 - `REDIS_PASSWORD=CHANGE_ME_REDIS_PASSWORD`
 - `REDIS_URL=redis://:CHANGE_ME_REDIS_PASSWORD@redis:6379`
 
+
+## Neuer Schutz im Code
+
+Die Services (`webapp`, `crawler`, `worker`) versuchen zuerst die `DATABASE_URL` und bei `28P01` (Auth-Fehler) automatisch einen zweiten Verbindungsversuch mit `POSTGRES_*`-Werten.
+
+Das hilft sowohl bei veralteter `DATABASE_URL` als auch bei teilweise inkonsistenter ENV-Übernahme in Coolify.
+
 ## Wichtig
 
 Wenn PostgreSQL bereits mit einem alten Passwort initialisiert wurde, reicht es nicht, nur die Variablen zu ändern.

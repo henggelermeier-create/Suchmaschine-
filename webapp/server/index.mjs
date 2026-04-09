@@ -2,9 +2,9 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import jwt from 'jsonwebtoken'
-import { Pool } from 'pg'
 import { fileURLToPath } from 'url'
 import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
+import { createPgPoolWithFallback } from '../../database/create_pg_pool.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -22,26 +22,11 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme123'
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://ai_service:3010'
 const AFFILIATE_DEFAULT_TAG = process.env.AFFILIATE_DEFAULT_TAG || 'kauvio-default'
 
-function normalizeDbUrl(raw) {
-  const fallback = `postgresql://${process.env.POSTGRES_USER || 'kauvio'}:${process.env.POSTGRES_PASSWORD || 'replace_me'}@postgres:5432/${process.env.POSTGRES_DB || 'kauvio'}`
-  const input = String(raw || fallback).trim()
-  try {
-    const url = new URL(input)
-    if (!url.hostname || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) {
-      url.hostname = process.env.POSTGRES_HOST || 'postgres'
-    }
-    if (!url.port) {
-      url.port = String(process.env.POSTGRES_PORT || 5432)
-    }
-    return url.toString()
-  } catch {
-    return fallback
-  }
-}
-
-const DATABASE_URL = normalizeDbUrl(process.env.DATABASE_URL)
+const { pool, connectionString: DATABASE_URL } = await createPgPoolWithFallback({
+  databaseUrl: process.env.DATABASE_URL,
+  serviceName: 'webapp'
+})
 console.log('Using DB host from DATABASE_URL:', new URL(DATABASE_URL).hostname)
-const pool = new Pool({ connectionString: DATABASE_URL })
 
 function auth(req, res, next) {
   const header = req.headers.authorization || ''
