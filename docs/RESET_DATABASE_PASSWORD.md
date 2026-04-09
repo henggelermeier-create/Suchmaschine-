@@ -6,12 +6,14 @@ Wenn in den Logs steht:
 
 dann stimmt das Postgres-Passwort nicht mit der `DATABASE_URL` überein.
 
-## Final verwendete Werte
+## Konsistente Beispielwerte
 
 - `POSTGRES_DB=kauvio`
 - `POSTGRES_USER=kauvio`
-- `POSTGRES_PASSWORD=kauvio123secure`
-- `DATABASE_URL=postgresql://kauvio:kauvio123secure@postgres:5432/kauvio`
+- `POSTGRES_PASSWORD=CHANGE_ME_POSTGRES_PASSWORD`
+- `DATABASE_URL=postgresql://kauvio:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/kauvio`
+- `REDIS_PASSWORD=CHANGE_ME_REDIS_PASSWORD`
+- `REDIS_URL=redis://:CHANGE_ME_REDIS_PASSWORD@redis:6379`
 
 ## Wichtig
 
@@ -32,4 +34,4 @@ Danach funktioniert die Verbindung von:
 ## Admin Login
 
 - `ADMIN_EMAIL=admin@kauvio.ch`
-- `ADMIN_PASSWORD=changeme123`
+- `ADMIN_PASSWORD=CHANGE_ME_ADMIN_PASSWORD`

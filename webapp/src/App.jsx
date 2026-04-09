@@ -77,11 +77,7 @@ function Brand() {
     <div className="brand brand-modern">
       <div className="brand-wordmark">
         <span className="brand-dot" />
-codex/fix-error
         <span className="brand-name">KAUVIO<span className="brand-point">.</span></span>
-
-        <span className="brand-name">KAUVIO</span>
-main
       </div>
     </div>
   )
@@ -875,20 +871,24 @@ export default function App() {
       <Header />
       <main className="content home-content">
         <section className="panel home-simple">
-codex/fix-error
           <div className="home-logo">KAUVIO<span className="brand-point">.</span></div>
-
-          <div className="home-logo">KAUVIO</div>
- main
           <p className="home-subtitle">Preisvergleich Schweiz</p>
-          <h1 className="home-title">Suche. Vergleiche. Kaufe direkt.</h1>
+          <h1 className="home-title">Suche. Vergleiche. Kaufe smarter.</h1>
+          <p className="home-lead">
+            Finde in Sekunden aktuelle Preise aus Schweizer Shops – klar, schnell und ohne Umwege.
+          </p>
           <div className="search-shell hero-search home-search-centered">
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Produkt suchen, z. B. iPhone 15 Pro"
+              placeholder="Produkt, Modell oder Marke suchen (z. B. iPhone 15 Pro 256GB)"
             />
             <a className="btn hero-search-btn" href={searchCtaHref}>Jetzt vergleichen</a>
+          </div>
+          <div className="home-trust-row">
+            <TrustBullet icon="✓">Live Shop-Preise</TrustBullet>
+            <TrustBullet icon="⚡">Schnelle Suche</TrustBullet>
+            <TrustBullet icon="🔒">Direkter Shop-Link</TrustBullet>
           </div>
         </section>
 

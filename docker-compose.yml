@@ -11,16 +11,16 @@ services:
     expose:
       - "3002"
     environment:
-      PORT: 3002
-      NODE_ENV: production
-      APP_URL: https://kauvio.ch
-      JWT_SECRET: super-secret-123
-      ADMIN_EMAIL: admin@kauvio.ch
-      ADMIN_PASSWORD: Tuti@369*
-      DATABASE_URL: postgresql://kauvio:kauvio123@postgres:5432/kauvio
-      REDIS_URL: redis://:redis-kauvio-123@redis:6379
-      AI_SERVICE_URL: http://ai_service:3010
-      AFFILIATE_DEFAULT_TAG: kauvio-default
+      PORT: ${PORT:-3002}
+      NODE_ENV: ${NODE_ENV:-production}
+      APP_URL: ${APP_URL:-https://kauvio.ch}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai_service:3010}
+      AFFILIATE_DEFAULT_TAG: ${AFFILIATE_DEFAULT_TAG:-kauvio-default}
     depends_on:
       - postgres
       - redis
@@ -33,20 +33,20 @@ services:
       dockerfile: services/crawler/Dockerfile
     container_name: kauvio_crawler
     environment:
-      DATABASE_URL: postgresql://kauvio:kauvio123@postgres:5432/kauvio
-      REDIS_URL: redis://:redis-kauvio-123@redis:6379
-      FAST_CRAWLER_INTERVAL_SECONDS: 600
-      FULL_CRAWLER_INTERVAL_SECONDS: 3600
-      IMPORT_LIMIT_PER_PAGE: 24
-      DIGITEC_FAST_URLS: https://www.digitec.ch/de/s1/producttype/toplist/relevance/smartphones-24
-      DIGITEC_FULL_URLS: https://www.digitec.ch/de/s1/producttype/toplist/relevance/smartphones-24,https://www.digitec.ch/de/s1/producttype/toplist/relevance/notebook-6,https://www.digitec.ch/de/s1/producttype/toplist/relevance/headphones-48
-      DIGITEC_IMPORT_LIMIT_PER_PAGE: 18
-      BRACK_FAST_URLS: https://www.brack.ch/it-multimedia/handy-telefonie/smartphone-handy/smartphones
-      BRACK_FULL_URLS: https://www.brack.ch/it-multimedia/handy-telefonie/smartphone-handy/smartphones,https://www.brack.ch/it-multimedia/notebook-tablet/notebooks
-      BRACK_IMPORT_LIMIT_PER_PAGE: 18
-      INTERDISCOUNT_FAST_URLS: https://www.interdiscount.ch/de/telefone-tablets-smartwatches/handys-smartphones--c411000
-      INTERDISCOUNT_FULL_URLS: https://www.interdiscount.ch/de/telefone-tablets-smartwatches/handys-smartphones--c411000,https://www.interdiscount.ch/de/computer-gaming/notebooks-notebooks--c511000
-      INTERDISCOUNT_IMPORT_LIMIT_PER_PAGE: 18
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      FAST_CRAWLER_INTERVAL_SECONDS: ${FAST_CRAWLER_INTERVAL_SECONDS:-600}
+      FULL_CRAWLER_INTERVAL_SECONDS: ${FULL_CRAWLER_INTERVAL_SECONDS:-3600}
+      IMPORT_LIMIT_PER_PAGE: ${IMPORT_LIMIT_PER_PAGE:-24}
+      DIGITEC_FAST_URLS: ${DIGITEC_FAST_URLS:-https://www.digitec.ch/de/s1/producttype/toplist/relevance/smartphones-24}
+      DIGITEC_FULL_URLS: ${DIGITEC_FULL_URLS:-https://www.digitec.ch/de/s1/producttype/toplist/relevance/smartphones-24,https://www.digitec.ch/de/s1/producttype/toplist/relevance/notebook-6,https://www.digitec.ch/de/s1/producttype/toplist/relevance/headphones-48}
+      DIGITEC_IMPORT_LIMIT_PER_PAGE: ${DIGITEC_IMPORT_LIMIT_PER_PAGE:-18}
+      BRACK_FAST_URLS: ${BRACK_FAST_URLS:-https://www.brack.ch/it-multimedia/handy-telefonie/smartphone-handy/smartphones}
+      BRACK_FULL_URLS: ${BRACK_FULL_URLS:-https://www.brack.ch/it-multimedia/handy-telefonie/smartphone-handy/smartphones,https://www.brack.ch/it-multimedia/notebook-tablet/notebooks}
+      BRACK_IMPORT_LIMIT_PER_PAGE: ${BRACK_IMPORT_LIMIT_PER_PAGE:-18}
+      INTERDISCOUNT_FAST_URLS: ${INTERDISCOUNT_FAST_URLS:-https://www.interdiscount.ch/de/telefone-tablets-smartwatches/handys-smartphones--c411000}
+      INTERDISCOUNT_FULL_URLS: ${INTERDISCOUNT_FULL_URLS:-https://www.interdiscount.ch/de/telefone-tablets-smartwatches/handys-smartphones--c411000,https://www.interdiscount.ch/de/computer-gaming/notebooks-notebooks--c511000}
+      INTERDISCOUNT_IMPORT_LIMIT_PER_PAGE: ${INTERDISCOUNT_IMPORT_LIMIT_PER_PAGE:-18}
     depends_on:
       - postgres
       - redis
@@ -68,14 +68,14 @@ services:
       dockerfile: services/worker/Dockerfile
     container_name: kauvio_worker
     environment:
-      DATABASE_URL: postgresql://kauvio:kauvio123@postgres:5432/kauvio
-      REDIS_URL: redis://:redis-kauvio-123@redis:6379
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-alerts@kauvio.ch}
-      ALERT_CHECK_INTERVAL_SECONDS: 120
+      ALERT_CHECK_INTERVAL_SECONDS: ${ALERT_CHECK_INTERVAL_SECONDS:-120}
     depends_on:
       - postgres
       - redis
@@ -85,9 +85,9 @@ services:
     image: postgres:16-alpine
     container_name: kauvio_postgres
     environment:
-      POSTGRES_DB: kauvio
-      POSTGRES_USER: kauvio
-      POSTGRES_PASSWORD: kauvio123
+      POSTGRES_DB: ${POSTGRES_DB:-kauvio}
+      POSTGRES_USER: ${POSTGRES_USER:-kauvio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - kauvio_postgres_data_v41:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d
@@ -96,7 +96,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: kauvio_redis
-    command: redis-server --requirepass redis-kauvio-123 --save "" --appendonly no
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command: ["sh", "-c", "redis-server --requirepass \"$${REDIS_PASSWORD}\" --save \"\" --appendonly no"]
     restart: unless-stopped
 
 volumes:
