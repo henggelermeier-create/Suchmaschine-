@@ -6,13 +6,15 @@
 - Compose File: `/docker-compose.yml`
 
 ## Pflicht-ENV
-- `POSTGRES_PASSWORD=DEIN_DB_PASSWORT`
+- `POSTGRES_PASSWORD=CHANGE_ME_POSTGRES_PASSWORD`
+- `REDIS_PASSWORD=CHANGE_ME_REDIS_PASSWORD`
+- `REDIS_URL=redis://:CHANGE_ME_REDIS_PASSWORD@redis:6379`
 - `ADMIN_EMAIL=admin@kauvio.ch`
-- `ADMIN_PASSWORD=DEIN_PASSWORT`
-- `JWT_SECRET=LANGES_SECRET`
+- `ADMIN_PASSWORD=CHANGE_ME_ADMIN_PASSWORD`
+- `JWT_SECRET=CHANGE_ME_LONG_RANDOM_JWT_SECRET`
 
-## Empfohlene explizite DB-URL
-`DATABASE_URL=postgresql://kauvio:DEIN_DB_PASSWORT@postgres:5432/kauvio`
+Optional (empfohlen):
+- `DATABASE_URL=postgresql://kauvio:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/kauvio`
 
 ## Woran du den Fix erkennst
 In den Webapp-Logs steht nach dem Start:
@@ -20,5 +22,8 @@ In den Webapp-Logs steht nach dem Start:
 
 Wenn dort `localhost` oder `127.0.0.1` steht, ist die ENV in Coolify falsch gesetzt oder nicht übernommen.
 
+Hinweis: Falls Coolify versehentlich eine DATABASE_URL mit localhost setzt, ersetzt der Code localhost automatisch durch den Docker-Service `postgres`. Optional kannst du `POSTGRES_HOST=postgres` setzen.
 
-Hinweis: Falls Coolify versehentlich eine DATABASE_URL mit localhost setzt, ersetzt der Code localhost automatisch durch den Docker-Service `postgres`. Optional kannst du POSTGRES_HOST=postgres setzen.
+## Fehlerbild 28P01 beheben
+- Bei `password authentication failed for user "kauvio"` sind meist `POSTGRES_PASSWORD` und `DATABASE_URL` inkonsistent oder das DB-Volume enthält alte Credentials.
+- Lösung: Stack stoppen, Postgres Persistent Volume löschen, mit konsistenten ENV-Werten neu deployen.

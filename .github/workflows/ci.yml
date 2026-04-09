@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master, work ]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify docker-compose has no hardcoded demo secrets
+        run: |
+          set -euo pipefail
+          required_patterns=(
+            'JWT_SECRET: \$\{JWT_SECRET:'
+            'ADMIN_PASSWORD: \$\{ADMIN_PASSWORD:'
+            'DATABASE_URL: \$\{DATABASE_URL:'
+            'REDIS_URL: \$\{REDIS_URL:'
+            'POSTGRES_PASSWORD: \$\{POSTGRES_PASSWORD:'
+            'REDIS_PASSWORD: \$\{REDIS_PASSWORD:'
+          )
+          for pattern in "${required_patterns[@]}"; do
+            if ! grep -Eq "$pattern" docker-compose.yml; then
+              echo "Missing expected env placeholder pattern: $pattern"
+              exit 1
+            fi
+          done
+
+          if grep -En '(super-secret|Tuti@|kauvio123|redis-kauvio-123)' docker-compose.yml; then
+            echo 'Found forbidden hardcoded secret-like values in docker-compose.yml'
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install webapp dependencies
+        run: npm --prefix webapp ci
+
+      - name: Build webapp
+        run: npm --prefix webapp run build
