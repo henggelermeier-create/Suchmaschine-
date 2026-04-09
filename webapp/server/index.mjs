@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken'
 import { Pool } from 'pg'
 import { fileURLToPath } from 'url'
 import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
+import { normalizeDbUrl } from '../../database/normalize_db_url.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -21,23 +22,6 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@kauvio.ch'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme123'
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://ai_service:3010'
 const AFFILIATE_DEFAULT_TAG = process.env.AFFILIATE_DEFAULT_TAG || 'kauvio-default'
-
-function normalizeDbUrl(raw) {
-  const fallback = `postgresql://${process.env.POSTGRES_USER || 'kauvio'}:${process.env.POSTGRES_PASSWORD || 'replace_me'}@postgres:5432/${process.env.POSTGRES_DB || 'kauvio'}`
-  const input = String(raw || fallback).trim()
-  try {
-    const url = new URL(input)
-    if (!url.hostname || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) {
-      url.hostname = process.env.POSTGRES_HOST || 'postgres'
-    }
-    if (!url.port) {
-      url.port = String(process.env.POSTGRES_PORT || 5432)
-    }
-    return url.toString()
-  } catch {
-    return fallback
-  }
-}
 
 const DATABASE_URL = normalizeDbUrl(process.env.DATABASE_URL)
 console.log('Using DB host from DATABASE_URL:', new URL(DATABASE_URL).hostname)
