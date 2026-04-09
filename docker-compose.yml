@@ -93,6 +93,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: kauvio_postgres
+    entrypoint: ["/bin/sh", "/usr/local/bin/postgres-entrypoint-with-password-sync.sh"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-kauvio}
       POSTGRES_USER: ${POSTGRES_USER:-kauvio}
@@ -100,6 +101,7 @@ services:
     volumes:
       - kauvio_postgres_data_v41:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d
+      - ./database/postgres-entrypoint-with-password-sync.sh:/usr/local/bin/postgres-entrypoint-with-password-sync.sh:ro
     restart: unless-stopped
 
   redis:

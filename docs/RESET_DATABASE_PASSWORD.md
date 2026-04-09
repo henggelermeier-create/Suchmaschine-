@@ -16,6 +16,15 @@ dann stimmt das Postgres-Passwort nicht mit der `DATABASE_URL` überein.
 - `REDIS_URL=redis://:CHANGE_ME_REDIS_PASSWORD@redis:6379`
 
 
+
+## Automatischer Passwort-Abgleich (neu)
+
+Der Postgres-Container setzt beim Start das Passwort von `POSTGRES_USER` automatisch auf `POSTGRES_PASSWORD` (auch bei bestehendem Volume).
+
+Dadurch reicht in vielen Fällen bereits:
+1. `POSTGRES_PASSWORD` korrekt setzen
+2. Stack neu starten
+
 ## Neuer Schutz im Code
 
 Die Services (`webapp`, `crawler`, `worker`) versuchen zuerst die `DATABASE_URL` und bei `28P01` (Auth-Fehler) automatisch einen zweiten Verbindungsversuch mit `POSTGRES_*`-Werten.
@@ -24,9 +33,9 @@ Das hilft sowohl bei veralteter `DATABASE_URL` als auch bei teilweise inkonsiste
 
 ## Wichtig
 
-Wenn PostgreSQL bereits mit einem alten Passwort initialisiert wurde, reicht es nicht, nur die Variablen zu ändern.
+Wenn trotz Neustart weiterhin `28P01` erscheint, ist wahrscheinlich ein tieferes Rollen-/State-Problem im Volume vorhanden.
 
-Dann musst du:
+Dann musst du als Fallback:
 
 1. Stack stoppen
 2. Postgres Persistent Storage / Volume löschen
