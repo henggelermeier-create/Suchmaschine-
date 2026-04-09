@@ -15,6 +15,13 @@ dann stimmt das Postgres-Passwort nicht mit der `DATABASE_URL` überein.
 - `REDIS_PASSWORD=CHANGE_ME_REDIS_PASSWORD`
 - `REDIS_URL=redis://:CHANGE_ME_REDIS_PASSWORD@redis:6379`
 
+
+## Neuer Schutz im Code
+
+Die Services (`webapp`, `crawler`, `worker`) überschreiben bei gesetzten `POSTGRES_*`-Variablen die Zugangsdaten aus `DATABASE_URL`.
+
+Das hilft, wenn in Coolify versehentlich eine alte `DATABASE_URL` stehen bleibt, aber `POSTGRES_PASSWORD` bereits korrekt ist.
+
 ## Wichtig
 
 Wenn PostgreSQL bereits mit einem alten Passwort initialisiert wurde, reicht es nicht, nur die Variablen zu ändern.

@@ -18,6 +18,9 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      POSTGRES_DB: ${POSTGRES_DB:-kauvio}
+      POSTGRES_USER: ${POSTGRES_USER:-kauvio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai_service:3010}
       AFFILIATE_DEFAULT_TAG: ${AFFILIATE_DEFAULT_TAG:-kauvio-default}
@@ -34,6 +37,9 @@ services:
     container_name: kauvio_crawler
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      POSTGRES_DB: ${POSTGRES_DB:-kauvio}
+      POSTGRES_USER: ${POSTGRES_USER:-kauvio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       FAST_CRAWLER_INTERVAL_SECONDS: ${FAST_CRAWLER_INTERVAL_SECONDS:-600}
       FULL_CRAWLER_INTERVAL_SECONDS: ${FULL_CRAWLER_INTERVAL_SECONDS:-3600}
@@ -69,6 +75,9 @@ services:
     container_name: kauvio_worker
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      POSTGRES_DB: ${POSTGRES_DB:-kauvio}
+      POSTGRES_USER: ${POSTGRES_USER:-kauvio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
