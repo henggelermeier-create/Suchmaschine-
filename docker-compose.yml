@@ -20,7 +20,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       POSTGRES_DB: ${POSTGRES_DB:-kauvio}
       POSTGRES_USER: ${POSTGRES_USER:-kauvio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai_service:3010}
       AFFILIATE_DEFAULT_TAG: ${AFFILIATE_DEFAULT_TAG:-kauvio-default}
@@ -39,7 +39,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       POSTGRES_DB: ${POSTGRES_DB:-kauvio}
       POSTGRES_USER: ${POSTGRES_USER:-kauvio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       FAST_CRAWLER_INTERVAL_SECONDS: ${FAST_CRAWLER_INTERVAL_SECONDS:-600}
       FULL_CRAWLER_INTERVAL_SECONDS: ${FULL_CRAWLER_INTERVAL_SECONDS:-3600}
@@ -77,7 +77,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       POSTGRES_DB: ${POSTGRES_DB:-kauvio}
       POSTGRES_USER: ${POSTGRES_USER:-kauvio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
@@ -98,7 +98,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-kauvio}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - kauvio_postgres_data_v41:/var/lib/postgresql/data
+      - kauvio_postgres_data_v42:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d
     restart: unless-stopped
 
@@ -111,4 +111,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  kauvio_postgres_data_v41:
+  kauvio_postgres_data_v42:
