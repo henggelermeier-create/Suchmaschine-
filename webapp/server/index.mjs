@@ -4,6 +4,7 @@ import path from 'path'
 import jwt from 'jsonwebtoken'
 import { Pool } from 'pg'
 import { fileURLToPath } from 'url'
+import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -890,4 +891,11 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(distDir, 'index.html'))
 })
 
-app.listen(PORT, () => console.log(`kauvio webapp on ${PORT}`))
+ensureCoreSchema(pool)
+  .then(() => {
+    app.listen(PORT, () => console.log(`kauvio webapp on ${PORT}`))
+  })
+  .catch(err => {
+    console.error('DB schema bootstrap failed:', err)
+    process.exit(1)
+  })

@@ -1,6 +1,7 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY package.json package.json
+COPY services/crawler/package.json package.json
 RUN npm install --omit=dev
-COPY crawler.mjs crawler.mjs
+COPY services/crawler/crawler.mjs crawler.mjs
+COPY database /database
 CMD ["npm","start"]
