@@ -6,6 +6,48 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const migrationsDir = path.join(__dirname, 'migrations')
 const LOCK_KEY = 904211
+const DB_READY_ATTEMPTS = Number(process.env.DB_READY_ATTEMPTS || 30)
+const DB_READY_DELAY_MS = Number(process.env.DB_READY_DELAY_MS || 2000)
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isRetryableDbError(err) {
+  const code = String(err?.code || '')
+  const message = String(err?.message || '')
+  return [
+    code === 'ECONNREFUSED',
+    code === 'ECONNRESET',
+    code === 'ETIMEDOUT',
+    code === '57P03',
+    /database system is starting up/i.test(message),
+    /the database system is starting up/i.test(message),
+    /Connection terminated unexpectedly/i.test(message),
+    /connect ECONNREFUSED/i.test(message),
+  ].some(Boolean)
+}
+
+async function waitForDb(pool) {
+  let lastError
+  for (let attempt = 1; attempt <= DB_READY_ATTEMPTS; attempt++) {
+    try {
+      await pool.query('SELECT 1')
+      if (attempt > 1) {
+        console.log(`[db] PostgreSQL became reachable on attempt ${attempt}/${DB_READY_ATTEMPTS}`)
+      }
+      return
+    } catch (err) {
+      lastError = err
+      if (!isRetryableDbError(err) || attempt === DB_READY_ATTEMPTS) {
+        throw err
+      }
+      console.log(`[db] PostgreSQL not ready yet (${attempt}/${DB_READY_ATTEMPTS}): ${String(err?.code || err?.message || err)}`)
+      await sleep(DB_READY_DELAY_MS)
+    }
+  }
+  throw lastError
+}
 
 async function listMigrationFiles() {
   const entries = await readdir(migrationsDir, { withFileTypes: true })
@@ -16,6 +58,8 @@ async function listMigrationFiles() {
 }
 
 export async function ensureCoreSchema(pool) {
+  await waitForDb(pool)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename TEXT PRIMARY KEY,
