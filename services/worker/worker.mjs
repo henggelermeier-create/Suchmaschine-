@@ -1,17 +1,64 @@
-import { Pool } from 'pg'
-import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
-import { normalizeDbUrl } from '../../database/normalize_db_url.mjs'
+import React, { useEffect, useMemo, useState } from 'react'
+import App from './App.jsx'
+import HomePageProfessional from './HomePageProfessional.jsx'
+import './swiss-home.css'
 
-const DATABASE_URL = normalizeDbUrl(process.env.DATABASE_URL)
-console.log('[worker] Using DB host from DATABASE_URL:', new URL(DATABASE_URL).hostname)
-const pool = new Pool({ connectionString: DATABASE_URL })
-const interval = Number(process.env.ALERT_CHECK_INTERVAL_SECONDS || 120)
-async function cycle() {
-  try {
-    await pool.query('INSERT INTO monitoring_events(service_name, level, message) VALUES ($1,$2,$3)', ['worker', 'info', 'Worker-Zyklus erfolgreich'])
-    console.log('[worker] ok')
-  } catch (err) { console.error(err) }
+function routeNow() {
+  return window.location.hash.replace(/^#/, '') || '/'
 }
-await ensureCoreSchema(pool)
-await cycle()
-setInterval(cycle, interval * 1000)
+
+async function fetchProducts(query = '') {
+  const url = `/api/products${query ? `?q=${encodeURIComponent(query)}` : ''}`
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Produkte konnten nicht geladen werden.')
+  return { items: data.items || [], liveSearch: data.liveSearch || null }
+}
+
+export default function Root() {
+  const [route, setRoute] = useState(routeNow())
+  const [query, setQuery] = useState('')
+  const [products, setProducts] = useState([])
+  const [loadingProducts, setLoadingProducts] = useState(false)
+  const [liveSearch, setLiveSearch] = useState(null)
+
+  useEffect(() => {
+    const onHash = () => setRoute(routeNow())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  useEffect(() => {
+    if (!(route === '/' || route === '/search')) return
+    setLoadingProducts(true)
+    fetchProducts(query)
+      .then(({ items, liveSearch }) => {
+        setProducts(items)
+        setLiveSearch(liveSearch)
+      })
+      .catch(() => {
+        setProducts([])
+        setLiveSearch(null)
+      })
+      .finally(() => setLoadingProducts(false))
+  }, [route, query])
+
+  const featured = useMemo(() => products.slice(0, 6), [products])
+
+  if (!(route === '/' || route === '/search')) {
+    return <App />
+  }
+
+  return (
+    <div className="shell swiss-shell">
+      <HomePageProfessional
+        query={query}
+        setQuery={setQuery}
+        loadingProducts={loadingProducts}
+        featured={featured}
+        products={products}
+        liveSearch={liveSearch}
+      />
+    </div>
+  )
+}

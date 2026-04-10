@@ -10,7 +10,7 @@ export function normalizeSearchText(input = '') {
 
 export function canonicalModelKey({ brand = '', title = '', specs = '' } = {}) {
   return normalizeSearchText(`${brand} ${title} ${specs}`)
-    .replace(/\b(5g|lte|wifi|bluetooth|dual sim|esim|smartphone|notebook|headphones|kopfhorer|kopfhörer|staubsauger)\b/g, ' ')
+    .replace(/\b(5g|lte|wifi|bluetooth|dual sim|esim|smartphone|notebook|headphones|kopfhorer|kopfhörer|staubsauger|black|white|blue|green|gray|grey|silver|gold)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -39,7 +39,7 @@ export async function enqueueLiveSearchTask(pool, query, requestedBy = 'public')
 
   const inserted = await pool.query(
     `INSERT INTO search_tasks(query, normalized_query, trigger_type, status, strategy, user_visible_note, task_priority, source_budget, requested_by)
-     VALUES ($1,$2,'query_miss','pending','hybrid_ai_live','Wir bereiten gerade Live-Ergebnisse aus externen Quellen auf.',60,25,$3)
+     VALUES ($1,$2,'query_miss','pending','hybrid_ai_live','Wir bereiten gerade Live-Ergebnisse aus Schweizer Quellen auf.',60,25,$3)
      RETURNING id, query, normalized_query, status, strategy, user_visible_note, result_count, discovered_count, imported_count, created_at`,
     [query, normalized, requestedBy]
   )
@@ -47,8 +47,8 @@ export async function enqueueLiveSearchTask(pool, query, requestedBy = 'public')
   const task = inserted.rows[0]
   const seeds = [
     { provider: 'toppreise', source_kind: 'search_seed', seed_value: query },
-    { provider: 'google_fallback', source_kind: 'search_seed', seed_value: query },
     { provider: 'sitemap_discovery', source_kind: 'query_seed', seed_value: query },
+    { provider: 'swiss_shop_scan', source_kind: 'query_seed', seed_value: query },
   ]
   for (const seed of seeds) {
     await pool.query(
