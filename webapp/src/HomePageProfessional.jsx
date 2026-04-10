@@ -1,4 +1,5 @@
 import React from 'react'
+import SearchSuggestBox from './SearchSuggestBox.jsx'
 
 const formatPrice = (value) => value != null ? `CHF ${Number(value).toFixed(2)}` : '—'
 
@@ -62,14 +63,12 @@ export default function HomePageProfessional({ query, setQuery, loadingProducts,
             Du vergleichst Preise direkt in CHF und gelangst ohne Umwege zum passenden Shop.
           </p>
 
-          <div className="search-shell swiss-search-shell">
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Suche nach Produkt oder Marke – z. B. iPhone 15, Galaxy S24 oder MacBook Air"
-            />
-            <a className="btn hero-search-btn" href="#/search">Preise vergleichen</a>
-          </div>
+          <SearchSuggestBox
+            query={query}
+            setQuery={setQuery}
+            href="#/search"
+            placeholder="Suche nach Produkt oder Marke – z. B. iPhone 15, Galaxy S24 oder MacBook Air"
+          />
 
           <div className="swiss-badge-row">
             <span className="trust-item"><span className="trust-icon">CH</span>Fokus auf Schweizer Händler</span>
