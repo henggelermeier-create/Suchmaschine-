@@ -16,9 +16,17 @@ const config = {
     shopName: 'Digitec',
     sourceName: 'digitec',
     fastUrls: splitEnv('DIGITEC_FAST_URLS', process.env.DIGITEC_IMPORT_URLS || 'https://www.digitec.ch/de/s1/producttype/toplist/relevance/smartphones-24,https://www.digitec.ch/de/s1/producttype/toplist/relevance/notebook-6,https://www.digitec.ch/de/s1/producttype/toplist/relevance/headphones-48'),
-    fullUrls: splitEnv('DIGITEC_FULL_URLS', process.env.DIGITEC_IMPORT_URLS || ''),
+    fullUrls: splitEnv('DIGITEC_FULL_URLS', process.env.DIGITEC_IMPORT_URLS || 'https://www.digitec.ch/de/s1/producttype/toplist/relevance/smartphones-24,https://www.digitec.ch/de/s1/producttype/toplist/relevance/notebook-6,https://www.digitec.ch/de/s1/producttype/toplist/relevance/headphones-48'),
     limit: Number(process.env.DIGITEC_IMPORT_LIMIT_PER_PAGE || DEFAULT_LIMIT),
-    importer: importDigitecPage,
+    importer: importDigitecLikePage,
+  },
+  galaxus: {
+    shopName: 'Galaxus',
+    sourceName: 'galaxus',
+    fastUrls: splitEnv('GALAXUS_FAST_URLS', process.env.GALAXUS_IMPORT_URLS || 'https://www.galaxus.ch/de/s1/producttype/toplist/relevance/smartphones-24,https://www.galaxus.ch/de/s1/producttype/toplist/relevance/notebook-6,https://www.galaxus.ch/de/s1/producttype/toplist/relevance/headphones-48'),
+    fullUrls: splitEnv('GALAXUS_FULL_URLS', process.env.GALAXUS_IMPORT_URLS || 'https://www.galaxus.ch/de/s1/producttype/toplist/relevance/smartphones-24,https://www.galaxus.ch/de/s1/producttype/toplist/relevance/notebook-6,https://www.galaxus.ch/de/s1/producttype/toplist/relevance/headphones-48'),
+    limit: Number(process.env.GALAXUS_IMPORT_LIMIT_PER_PAGE || DEFAULT_LIMIT),
+    importer: importDigitecLikePage,
   },
   brack: {
     shopName: 'BRACK',
@@ -274,12 +282,21 @@ function parseGenericCatalog(document, url, shopName, sourceName, score = 55) {
   return products
 }
 
-async function importDigitecPage(url, limit) {
+function detectDigitecLikeSource(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    if (hostname.includes('galaxus.ch')) return { shopName: 'Galaxus', sourceName: 'galaxus' }
+  } catch {}
+  return { shopName: 'Digitec', sourceName: 'digitec' }
+}
+
+async function importDigitecLikePage(url, limit) {
+  const { shopName, sourceName } = detectDigitecLikeSource(url)
   const html = await fetchHtml(url)
   const dom = new JSDOM(html)
   const document = dom.window.document
   const lines = linesFromBody(document, html)
-  const links = extractLinks(document, url, (href) => /digitec\.ch\/.+\/(product|s1\/product)\//i.test(href))
+  const links = extractLinks(document, url, (href) => /(?:digitec|galaxus)\.ch\/.+\/(product|s1\/product)\//i.test(href))
   const category = categoryFromUrl(url)
   const products = []
   for (let i = 0; i < lines.length; i++) {
@@ -294,20 +311,20 @@ async function importDigitecPage(url, limit) {
       title: fullTitle,
       brand: brandFromTitle(title),
       category,
-      description: `Live import von Digitec (${category})`,
+      description: `Live import von ${shopName} (${category})`,
       price,
       currency: 'CHF',
-      price_level: 'Live bei Digitec',
+      price_level: `Live bei ${shopName}`,
       deal_score: 60,
-      ai_summary: 'Aktueller Live-Preisimport von Digitec.',
-      shop_name: 'Digitec',
+      ai_summary: `Aktueller Live-Preisimport von ${shopName}.`,
+      shop_name: shopName,
       product_url: matchLink(links, fullTitle) || matchLink(links, title),
       image_url: null,
-      source_name: 'digitec',
+      source_name: sourceName,
       source_external_id: null,
     }))
   }
-  const fallback = !products.length ? parseGenericCatalog(document, url, 'Digitec', 'digitec', 57) : []
+  const fallback = !products.length ? parseGenericCatalog(document, url, shopName, sourceName, 57) : []
   return dedupeProducts(products.length ? products : fallback).slice(0, limit)
 }
 
@@ -570,7 +587,7 @@ async function runAll(mode) {
     console.error('[crawler] DATABASE_URL fehlt')
     return
   }
-  for (const source of ['digitec', 'brack', 'interdiscount']) {
+  for (const source of ['digitec', 'galaxus', 'brack', 'interdiscount']) {
     try {
       await runSource(source, mode)
     } catch (err) {
