@@ -1,0 +1,228 @@
+.swiss-shell{
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, .42), transparent 34%),
+    radial-gradient(circle at top right, rgba(226, 232, 240, .8), transparent 28%),
+    linear-gradient(180deg, #f3f6fb 0%, #eef2f7 100%);
+}
+
+.swiss-topbar{
+  background:rgba(255,255,255,.94);
+  border-bottom:1px solid rgba(203,213,225,.95);
+}
+
+.swiss-nav a{
+  border-radius:999px;
+  padding:10px 16px;
+}
+
+.swiss-home{
+  padding-top:36px;
+  padding-bottom:52px;
+}
+
+.swiss-hero{
+  display:grid;
+  grid-template-columns:minmax(0,1.18fr) minmax(320px,.82fr);
+  gap:28px;
+  padding:32px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(248,250,252,.98) 100%),
+    radial-gradient(circle at top left, rgba(37,99,235,.06), transparent 28%);
+}
+
+.swiss-kicker{
+  display:inline-flex;
+  align-items:center;
+  padding:8px 14px;
+  border-radius:999px;
+  background:#eef4ff;
+  border:1px solid #d7e5ff;
+  color:#1d4ed8;
+  font-weight:800;
+  letter-spacing:.02em;
+}
+
+.swiss-title{
+  margin:18px 0 14px;
+  max-width:800px;
+  font-size:clamp(2.8rem,5.2vw,4.8rem);
+  line-height:.96;
+  letter-spacing:-.055em;
+}
+
+.swiss-lead{
+  margin:0;
+  max-width:760px;
+  color:#475569;
+  font-size:1.08rem;
+  line-height:1.8;
+}
+
+.swiss-search-shell{
+  margin-top:24px;
+  border:1px solid #d7e3f4;
+  box-shadow:0 22px 54px rgba(15,23,42,.08);
+}
+
+.swiss-search-shell input{
+  min-height:66px;
+  font-size:1.05rem;
+}
+
+.swiss-badge-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:18px;
+}
+
+.swiss-highlight-card{
+  height:100%;
+  padding:26px;
+  border-radius:24px;
+  background:linear-gradient(180deg,#0f172a 0%, #172033 100%);
+  color:#fff;
+  box-shadow:0 24px 70px rgba(15,23,42,.18);
+}
+
+.swiss-highlight-card h2{
+  margin:14px 0 12px;
+  font-size:2rem;
+  line-height:1.08;
+  letter-spacing:-.04em;
+}
+
+.swiss-highlight-card p{
+  margin:0;
+  color:#cbd5e1;
+  line-height:1.72;
+}
+
+.swiss-proof-grid{
+  display:grid;
+  gap:12px;
+  margin-top:18px;
+}
+
+.swiss-proof-card{
+  display:grid;
+  gap:6px;
+  padding:14px 15px;
+  border-radius:18px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+}
+
+.swiss-proof-card strong{
+  font-size:1rem;
+}
+
+.swiss-proof-card span{
+  color:#d7e0ef;
+  line-height:1.6;
+  font-size:.95rem;
+}
+
+.swiss-section{
+  margin-top:22px;
+  padding:24px;
+}
+
+.swiss-result-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:16px;
+}
+
+.swiss-result-card{
+  display:grid;
+  gap:12px;
+  padding:20px;
+  border-radius:22px;
+  border:1px solid #dbe4f0;
+  background:linear-gradient(180deg,#ffffff 0%, #fbfcfe 100%);
+  box-shadow:0 16px 36px rgba(15,23,42,.05);
+  transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.swiss-result-card:hover,
+.swiss-list-card:hover{
+  transform:translateY(-2px);
+  border-color:#c5d3e6;
+  box-shadow:0 24px 44px rgba(15,23,42,.09);
+}
+
+.swiss-result-card-head,
+.swiss-result-footer{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+}
+
+.swiss-result-title{
+  font-size:1.08rem;
+  font-weight:800;
+  line-height:1.4;
+}
+
+.swiss-result-meta{
+  color:#64748b;
+  font-size:.94rem;
+}
+
+.swiss-link-arrow{
+  display:inline-grid;
+  place-items:center;
+  width:40px;
+  height:40px;
+  border-radius:999px;
+  background:#eff6ff;
+  color:#1d4ed8;
+  font-weight:900;
+}
+
+.swiss-benefits-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:16px;
+}
+
+.swiss-results-list{
+  gap:12px;
+}
+
+.swiss-list-card{
+  border-radius:20px;
+}
+
+.swiss-footer-inner{
+  background:linear-gradient(180deg,#ffffff 0%, #f9fbff 100%);
+}
+
+@media (max-width: 1080px){
+  .swiss-hero{
+    grid-template-columns:1fr;
+  }
+  .swiss-result-grid,
+  .swiss-benefits-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+
+@media (max-width: 760px){
+  .swiss-home{
+    padding-top:18px;
+  }
+  .swiss-hero,
+  .swiss-section{
+    padding:18px;
+  }
+  .swiss-title{
+    font-size:2.35rem;
+  }
+  .swiss-result-grid,
+  .swiss-benefits-grid{
+    grid-template-columns:1fr;
+  }
+}
