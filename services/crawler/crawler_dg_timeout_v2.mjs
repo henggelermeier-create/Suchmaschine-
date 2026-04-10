@@ -21,6 +21,8 @@ const BROWSER_HEADERS = {
   'Upgrade-Insecure-Requests': '1'
 }
 
+const TITLE_BRAND_RE = /(Apple|Samsung|Google|Xiaomi|Sony|Nokia|Motorola|Asus|Lenovo|HP|Acer|Dell|MSI|Jabra|Bose|Nothing|Honor|Huawei|Fairphone|Microsoft)/i
+
 const sources = {
   digitec: {
     shop_name: 'Digitec',
@@ -38,17 +40,31 @@ function clean(s=''){ return String(s).replace(/\s+/g,' ').trim() }
 function brandFromTitle(title=''){ return clean(title).split(/\s+/)[0] || null }
 function slugify(input=''){ return String(input).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,160) }
 function normalizePrice(raw){
-  const cleaned = String(raw||'').replace(/CHF/gi,'').replace(/'/g,'').replace(/[^\d.,]/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.')
+  const cleaned = String(raw||'').replace(/CHF/gi,'').replace(/–/g,'').replace(/'/g,'').replace(/[^\d.,]/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.')
   const value = Number.parseFloat(cleaned)
   return Number.isFinite(value) ? value : null
 }
 function categoryFromUrl(url){
-  if (/smartphones/i.test(url)) return 'Smartphones'
+  if (/smartphones?/i.test(url)) return 'Smartphones'
   if (/notebook/i.test(url)) return 'Notebooks'
+  if (/headphones?/i.test(url)) return 'Headphones'
   return 'Produkte'
 }
 function maybeAbsolute(base, href){ try { return new URL(href, base).toString() } catch { return null } }
 function buildSlug(title, brand){ return slugify(`${brand || brandFromTitle(title) || ''} ${title}`) }
+
+function isLikelyTitle(line='') {
+  const value = clean(line)
+  if (!value || value.length < 4 || value.length > 160) return false
+  if (/^CHF\s*\d/i.test(value)) return false
+  if (/^(Image:|Energielabel|Das meinen unsere Kunden|Pro|Contra|mehr|alle angebote anzeigen|In unserem Showroom|i|Smartphone|Notebook|Headphones?|Kopfhörer|Bestseller|Tagesangebot)$/i.test(value)) return false
+  return TITLE_BRAND_RE.test(value)
+}
+
+function isLikelySpecLine(line='') {
+  const value = clean(line)
+  return /\b(GB|TB|SIM|eSIM|5G|4G|Wi-?Fi|Bluetooth|CH|Black|Blue|Green|Navy|Titanium|Dual SIM|"|\d+\.\d{2}\")\b/i.test(value)
+}
 
 function networkErrorMessage(url, primaryError, fallbackError) {
   const bits = []
@@ -144,19 +160,40 @@ function dedupe(items){
   return [...map.values()]
 }
 
-async function importDigitecLike(url, source_name, shop_name){
-  const html = await fetchHtml(url)
-  const dom = new JSDOM(html)
-  const document = dom.window.document
-  const links = extractLinks(document, url)
-  const lines = String(document.body?.textContent || html).split(/\n+/).map(clean).filter(Boolean)
+function extractDigitecItemsFromLines(lines, url, source_name, shop_name, links) {
   const items = []
-  for (let i=0; i<lines.length; i++){
-    if (!/^CHF\s*\d/i.test(lines[i])) continue
-    const price = normalizePrice(lines[i])
-    const title = clean(lines[i+1])
-    const specs = clean(lines[i+2])
-    if (!price || !title || /^CHF\s*\d/i.test(title)) continue
+  for (let i = 0; i < lines.length; i++) {
+    const current = clean(lines[i])
+    if (!/^CHF\s*\d/i.test(current)) continue
+    const price = normalizePrice(current)
+    if (!price) continue
+
+    let title = ''
+    let specs = ''
+    for (let j = i + 1; j <= Math.min(i + 8, lines.length - 1); j++) {
+      const candidate = clean(lines[j])
+      if (!candidate || /^CHF\s*\d/i.test(candidate)) continue
+      if (!title && isLikelyTitle(candidate)) {
+        title = candidate
+        const next = clean(lines[j + 1] || '')
+        if (next && !/^CHF\s*\d/i.test(next) && !isLikelyTitle(next) && isLikelySpecLine(next)) specs = next
+        break
+      }
+    }
+
+    if (!title) {
+      for (let j = Math.max(0, i - 4); j < i; j++) {
+        const candidate = clean(lines[j])
+        if (isLikelyTitle(candidate)) {
+          title = candidate
+          const maybeSpecs = clean(lines[j + 1] || '')
+          if (maybeSpecs && maybeSpecs !== current && !/^CHF\s*\d/i.test(maybeSpecs) && isLikelySpecLine(maybeSpecs)) specs = maybeSpecs
+          break
+        }
+      }
+    }
+
+    if (!title) continue
     const full = clean(`${title} ${specs}`)
     const brand = brandFromTitle(title)
     items.push({
@@ -177,6 +214,16 @@ async function importDigitecLike(url, source_name, shop_name){
       source_external_id: null,
     })
   }
+  return items
+}
+
+async function importDigitecLike(url, source_name, shop_name){
+  const html = await fetchHtml(url)
+  const dom = new JSDOM(html)
+  const document = dom.window.document
+  const links = extractLinks(document, url)
+  const lines = String(document.body?.textContent || html).split(/\n+/).map(clean).filter(Boolean)
+  const items = extractDigitecItemsFromLines(lines, url, source_name, shop_name, links)
   return dedupe(items).slice(0, LIMIT)
 }
 
