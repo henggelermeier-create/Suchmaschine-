@@ -1,3 +1,4 @@
+import https from 'node:https'
 import { Pool } from 'pg'
 import { JSDOM } from 'jsdom'
 import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
@@ -11,6 +12,14 @@ const FAST_INTERVAL = Number(process.env.FAST_CRAWLER_INTERVAL_SECONDS || 600)
 const FULL_INTERVAL = Number(process.env.FULL_CRAWLER_INTERVAL_SECONDS || 3600)
 const AUTO_START_FAST = process.env.CRAWLER_AUTO_START_FAST !== 'false'
 const AUTO_START_FULL = process.env.CRAWLER_AUTO_START_FULL !== 'false'
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+  'Accept-Language': 'de-CH,de;q=0.9,en;q=0.8',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+  'Upgrade-Insecure-Requests': '1'
+}
 
 const sources = {
   digitec: {
@@ -41,6 +50,42 @@ function categoryFromUrl(url){
 function maybeAbsolute(base, href){ try { return new URL(href, base).toString() } catch { return null } }
 function buildSlug(title, brand){ return slugify(`${brand || brandFromTitle(title) || ''} ${title}`) }
 
+function networkErrorMessage(url, primaryError, fallbackError) {
+  const bits = []
+  const pushErr = (label, err) => {
+    if (!err) return
+    const causeCode = err?.cause?.code ? ` cause=${err.cause.code}` : ''
+    const causeMsg = err?.cause?.message ? ` cause_msg=${err.cause.message}` : ''
+    bits.push(`${label}: ${err.name || 'Error'} ${err.message || String(err)}${causeCode}${causeMsg}`)
+  }
+  pushErr('fetch', primaryError)
+  pushErr('https', fallbackError)
+  return `Network request failed for ${url} | ${bits.join(' | ')}`
+}
+
+function requestViaHttps(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'GET',
+      headers: BROWSER_HEADERS,
+      family: 4,
+      timeout: FETCH_TIMEOUT_MS,
+    }, (res) => {
+      if (!res.statusCode || res.statusCode >= 400) {
+        res.resume()
+        return reject(new Error(`HTTPS HTTP ${res.statusCode || 'unknown'} for ${url}`))
+      }
+      let body = ''
+      res.setEncoding('utf8')
+      res.on('data', chunk => { body += chunk })
+      res.on('end', () => resolve(body))
+    })
+    req.on('timeout', () => req.destroy(new Error(`HTTPS timeout after ${FETCH_TIMEOUT_MS}ms for ${url}`)))
+    req.on('error', reject)
+    req.end()
+  })
+}
+
 async function fetchHtml(url, attempts=3){
   let lastError
   for(let attempt=1; attempt<=attempts; attempt++){
@@ -48,19 +93,23 @@ async function fetchHtml(url, attempts=3){
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
     try {
       const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; KauvioBot/1.0; +https://kauvio.ch)',
-          'Accept-Language': 'de-CH,de;q=0.9,en;q=0.8'
-        },
+        headers: BROWSER_HEADERS,
         signal: controller.signal
       })
       if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
       const html = await res.text()
       clearTimeout(timeout)
       return html
-    } catch (err) {
+    } catch (fetchErr) {
       clearTimeout(timeout)
-      lastError = err?.name === 'AbortError' ? new Error(`Fetch timeout after ${FETCH_TIMEOUT_MS}ms for ${url}`) : err
+      let httpsErr = null
+      try {
+        const html = await requestViaHttps(url)
+        return html
+      } catch (fallbackErr) {
+        httpsErr = fallbackErr
+      }
+      lastError = new Error(networkErrorMessage(url, fetchErr, httpsErr))
       if (attempt < attempts) await new Promise(r => setTimeout(r, 1500 * attempt))
     }
   }
