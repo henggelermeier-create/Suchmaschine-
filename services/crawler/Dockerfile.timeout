@@ -1,0 +1,7 @@
+FROM node:20-alpine
+WORKDIR /app
+COPY services/crawler/package.json package.json
+RUN npm install --omit=dev
+COPY services/crawler/crawler_dg_timeout_v2.mjs crawler_dg_timeout_v2.mjs
+COPY database /database
+CMD ["node","crawler_dg_timeout_v2.mjs"]
