@@ -28,8 +28,28 @@ function HomeResultCard({ item }) {
   )
 }
 
+function HeroTopProduct({ item, index }) {
+  return (
+    <a className="swiss-top-product" href={`#/product/${item.slug}`}>
+      <div className="swiss-top-product-rank">{index + 1}</div>
+      <div className="swiss-top-product-copy">
+        <strong>{item.title}</strong>
+        <span>{item.shop_name || 'Shop'} · {formatPrice(item.price)}</span>
+      </div>
+      <span className="result-pill">{item.decision?.label || dealLabel(item.deal_score ?? 0)}</span>
+    </a>
+  )
+}
+
 export default function HomePageProfessional({ query, setQuery, loadingProducts, featured, products }) {
   const title = query ? `Resultate für „${query}“` : 'Aktuelle Preisübersicht'
+  const topProducts = [...featured]
+    .sort((a, b) => {
+      const scoreA = Number(a.deal_score || 0) + Number(a.offer_count || 0) * 2
+      const scoreB = Number(b.deal_score || 0) + Number(b.offer_count || 0) * 2
+      return scoreB - scoreA
+    })
+    .slice(0, 3)
 
   return (
     <main className="content home-content swiss-home">
@@ -39,14 +59,14 @@ export default function HomePageProfessional({ query, setQuery, loadingProducts,
           <h1 className="swiss-title">Preise aus Schweizer Shops. Klar verglichen. Schnell gefunden.</h1>
           <p className="swiss-lead">
             Kauvio zeigt dir aktuelle Angebote aus Schweizer Onlineshops in einer ruhigen, professionellen Übersicht.
-            Du suchst nach dem besten Preis, vergleichst Anbieter direkt in CHF und gelangst ohne Umwege zum passenden Shop.
+            Du vergleichst Preise direkt in CHF und gelangst ohne Umwege zum passenden Shop.
           </p>
 
           <div className="search-shell swiss-search-shell">
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Suche nach Produkt, Modell oder Marke – z. B. iPhone 15 Pro, MacBook Air oder Dyson"
+              placeholder="Suche nach Produkt oder Marke – z. B. iPhone 15, Galaxy S24 oder MacBook Air"
             />
             <a className="btn hero-search-btn" href="#/search">Preise vergleichen</a>
           </div>
@@ -60,25 +80,26 @@ export default function HomePageProfessional({ query, setQuery, loadingProducts,
 
         <div className="swiss-hero-side">
           <div className="swiss-highlight-card">
-            <div className="eyebrow">Warum Kauvio</div>
-            <h2>Professionell, lokal und verständlich.</h2>
-            <p>
-              Die Startseite wurde für einen seriösen Schweizer Auftritt gestaltet: reduzierte Sprache, klare Prioritäten,
-              starke Lesbarkeit und eine Suche, die sofort in den Produktvergleich führt.
-            </p>
-            <div className="swiss-proof-grid">
-              <div className="swiss-proof-card">
-                <strong>Schweizer Markt</strong>
-                <span>Vergleiche mit Fokus auf lokale Shops und relevante Angebote.</span>
-              </div>
-              <div className="swiss-proof-card">
-                <strong>Saubere Übersicht</strong>
-                <span>Wichtige Informationen zuerst: Preis, Anbieter, Kategorie und Verfügbarkeit.</span>
-              </div>
-              <div className="swiss-proof-card">
-                <strong>Schnelle Entscheidung</strong>
-                <span>Von der Suche bis zum passenden Shop in wenigen Klicks.</span>
-              </div>
+            <div className="eyebrow">Top Produkte</div>
+            <h2>Beliebte Vergleiche auf einen Blick.</h2>
+            <p>Die rechte Spalte zeigt priorisierte Produkte mit starkem Deal-Score und mehreren aktiven Angeboten.</p>
+            <div className="swiss-top-products-list">
+              {topProducts.length ? topProducts.map((item, index) => (
+                <HeroTopProduct key={item.slug} item={item} index={index} />
+              )) : (
+                <div className="swiss-proof-card">
+                  <strong>Top-Produkte folgen</strong>
+                  <span>Sobald wieder Produktdaten vorhanden sind, erscheinen hier automatisch die stärksten Vergleiche.</span>
+                </div>
+              )}
+            </div>
+            <div className="swiss-why-list-wrap">
+              <div className="eyebrow">Warum Kauvio</div>
+              <ul className="swiss-why-list">
+                <li><strong>Schweizer Shops:</strong> Relevante Anbieter für den lokalen Markt.</li>
+                <li><strong>Saubere Übersicht:</strong> Preis, Anbieter und Kategorie stehen im Zentrum.</li>
+                <li><strong>Schnelle Entscheidung:</strong> Direkt vom Vergleich zum passenden Shop.</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -163,7 +184,7 @@ export default function HomePageProfessional({ query, setQuery, loadingProducts,
           </div>
           <div className="footer-links">
             <a href="#/impressum">Impressum</a>
-            <a href="#/admin/login">Admin</a>
+            <a href="#/admin/login">Intern</a>
           </div>
         </div>
       </footer>

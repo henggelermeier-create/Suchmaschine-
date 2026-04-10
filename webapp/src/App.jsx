@@ -83,9 +83,9 @@ function Brand() {
   )
 }
 
-function Stat({ title, value }) {
+function Stat({ title, value, subtle = false }) {
   return (
-    <div className="stat-card">
+    <div className={`stat-card ${subtle ? 'stat-card-subtle' : ''}`}>
       <div className="muted">{title}</div>
       <strong>{value}</strong>
     </div>
@@ -187,20 +187,21 @@ export default function App() {
     }
     setAdminLoading(true)
     api('/api/admin/dashboard')
-      .then(setDashboard)
-      .then(async () => {
+      .then(async (data) => {
+        setDashboard(data)
         await loadAdminProducts(adminQuery)
         const shops = await api('/api/admin/shop-sources').catch(() => ({ items: [] }))
         setShopSources(shops.items || [])
         const health = await api('/api/admin/system-health').catch(() => ({ checks: null }))
         setSystemHealth(health.checks || null)
+        const discovery = await api('/api/admin/discovery/queue').catch(() => ({ items: [] }))
+        setDiscoveryQueue(discovery.items || [])
       })
       .catch((err) => {
         if (err?.status === 401) {
           persistAdminToken('')
           setAdminToken('')
           window.location.hash = '/admin/login'
-          return
         }
       })
       .finally(() => setAdminLoading(false))
@@ -238,15 +239,11 @@ export default function App() {
     setEditorState(next)
   }
 
-
   async function createNewOffer() {
     if (!adminEditor) return
     await api(`/api/admin/products/${adminEditor.product.slug}/offers`, {
       method: 'POST',
-      body: JSON.stringify({
-        ...newOffer,
-        price: Number(newOffer.price)
-      })
+      body: JSON.stringify({ ...newOffer, price: Number(newOffer.price) })
     })
     await openAdminEditor(adminEditor.product.slug)
     await loadAdminProducts(adminQuery)
@@ -288,35 +285,6 @@ export default function App() {
     window.location.hash = '/admin/login'
   }
 
-
-
-
-  async function updateShopSource() {
-    if (!shopSourceForm.source_name) {
-      setAdminMessage('Bitte zuerst eine Shop-Quelle wählen oder ausfüllen.')
-      return
-    }
-    const d = await api(`/api/admin/shop-sources/${encodeURIComponent(shopSourceForm.source_name)}`, {
-      method: 'PUT',
-      body: JSON.stringify(shopSourceForm)
-    })
-    const shops = await api('/api/admin/shop-sources').catch(() => ({ items: [] }))
-    setShopSources(shops.items || [])
-    setAdminMessage(`Shop geändert: ${d.item.display_name}`)
-  }
-
-  async function deleteShopSource(source_name) {
-    await api(`/api/admin/shop-sources/${encodeURIComponent(source_name)}`, {
-      method: 'DELETE'
-    })
-    const shops = await api('/api/admin/shop-sources').catch(() => ({ items: [] }))
-    setShopSources(shops.items || [])
-    if (shopSourceForm.source_name === source_name) {
-      setShopSourceForm({ source_name: '', display_name: '', source_group: '', base_url: '', start_urls: '', discovery_notes: '', is_active: true })
-    }
-    setAdminMessage(`Shop gelöscht: ${source_name}`)
-  }
-
   async function saveShopSource() {
     const d = await api('/api/admin/shop-sources/save', {
       method: 'POST',
@@ -350,8 +318,7 @@ export default function App() {
         body: JSON.stringify({ source_name, mode })
       })
       setAdminMessage(`Crawl gestartet: ${d.job.source_name} · ${d.job.mode}`)
-      const refreshed = await api('/api/admin/dashboard')
-      setDashboard(refreshed)
+      await refreshAdminData()
     } catch (err) {
       setAdminMessage(err.message || 'Crawl-Job konnte nicht angelegt werden.')
     } finally {
@@ -365,9 +332,10 @@ export default function App() {
     await loadAdminProducts(adminQuery)
     const health = await api('/api/admin/system-health').catch(() => ({ checks: null }))
     setSystemHealth(health.checks || null)
+    const discovery = await api('/api/admin/discovery/queue').catch(() => ({ items: [] }))
+    setDiscoveryQueue(discovery.items || [])
     setAdminMessage('Dashboard und Produkte aktualisiert.')
   }
-
 
   async function planAssistant() {
     const plan = await api('/api/admin/assistant/plan', {
@@ -383,8 +351,7 @@ export default function App() {
       method: 'POST',
       body: JSON.stringify({ actions: assistantPlan.actions })
     })
-    const refreshed = await api('/api/admin/dashboard')
-    setDashboard(refreshed)
+    await refreshAdminData()
     setAdminMessage(`Assistant hat ${result.results.length} Aktion(en) ausgeführt.`)
   }
 
@@ -397,7 +364,6 @@ export default function App() {
     alert('Preisalarm gespeichert')
     setAlertPrice('')
   }
-
 
   if (route === '/impressum') {
     return (
@@ -418,7 +384,7 @@ export default function App() {
               <p className="muted">Adresse, E-Mail, verantwortliche Person und weitere Pflichtangaben hier ergänzen.</p>
               <div className="row gap-sm wrap" style={{marginTop: '16px'}}>
                 <a className="btn btn-small btn-ghost" href="#/">Zurück zur Startseite</a>
-                <a className="btn btn-small" href="#/admin/login">Interner Bereich</a>
+                <a className="btn btn-small" href="#/admin/login">Intern</a>
               </div>
             </div>
           </section>
@@ -444,15 +410,14 @@ export default function App() {
             </div>
           </div>
           <div className="eyebrow">Interner Zugang</div>
-          <h1 className="login-title">Admin Login</h1>
-          <p className="login-copy">Verwalte Shop-Links, Affiliate-URLs, Preisalarme und Crawler-Daten an einem Ort.</p>
+          <h1 className="login-title">Intern</h1>
+          <p className="login-copy">Verwalte Crawl, Produkte, Shop-Quellen und Live-Daten an einem Ort.</p>
           <form className="stack" onSubmit={loginAdmin}>
             <label className="field"><span>E-Mail</span><input value={login.email} onChange={e => setLogin({ ...login, email: e.target.value })} /></label>
             <label className="field"><span>Passwort</span><input type="password" value={login.password} onChange={e => setLogin({ ...login, password: e.target.value })} /></label>
             {loginError ? <div className="error-box">{loginError}</div> : null}
             <button className="btn btn-xl">Einloggen</button>
           </form>
-          <div className="login-hint">Für Live müssen ADMIN_EMAIL, ADMIN_PASSWORD und JWT_SECRET gesetzt sein.</div>
         </div>
       </div>
     )
@@ -462,46 +427,20 @@ export default function App() {
     return (
       <div className="shell">
         <Header />
-        <main className="content admin-content">
+        <main className="content admin-content admin-final-layout">
           <section className="hero admin-hero panel hero-banner admin-banner">
             <div>
-              <div className="badge">Go Live Control Center</div>
-              <h1 className="section-title">Kauvio Admin</h1>
-              <p className="section-text">Pflege Shop-Angebote, trage neue Shops direkt ein und kontrolliere, welche Produkte auf der Live-Seite sichtbar sind.</p>
+              <div className="badge">Interne Steuerung</div>
+              <h1 className="section-title">Kauvio Control Center</h1>
+              <p className="section-text">Crawl, Produktdaten, Discovery und Shop-Steuerung in einer klaren professionellen Übersicht.</p>
             </div>
             <div className="row gap-sm wrap">
+              <button className="btn btn-small btn-ghost" onClick={refreshAdminData}>Neu laden</button>
               <button className="btn btn-small btn-ghost" onClick={logoutAdmin}>Abmelden</button>
             </div>
           </section>
 
           {adminLoading && !dashboard ? <section className="panel"><p className="muted no-margin">Admin-Daten werden geladen…</p></section> : null}
-
-          <section className="panel go-live-panel">
-            <div className="section-head">
-              <div>
-                <h2>Go-Live Steuerung</h2>
-                <p className="muted no-margin">Schnellaktionen für Crawl, Datenaktualisierung und Live-Kontrolle.</p>
-              </div>
-            </div>
-            <div className="stack">
-              <div className="go-live-grid go-live-grid-primary">
-                <button className="btn btn-small" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'fast')}>Fast Crawl alle Shops</button>
-                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'full')}>Full Crawl alle Shops</button>
-                <button className="btn btn-small btn-ghost" onClick={refreshAdminData}>Produkte aktualisieren</button>
-                <button className="btn btn-small btn-ghost" onClick={refreshAdminData}>Dashboard neu laden</button>
-              </div>
-              <div className="go-live-grid go-live-grid-secondary">
-                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('digitec', 'fast')}>Digitec Fast</button>
-                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('brack', 'fast')}>BRACK Fast</button>
-                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('interdiscount', 'fast')}>Interdiscount Fast</button>
-              </div>
-              <div className="login-hint" style={{marginTop: '12px'}}>
-                {crawlActionLoading ? 'Crawl-Job wird angelegt…' : 'Manuelle Crawl-Jobs werden in die Queue geschrieben und vom Crawler automatisch abgearbeitet.'}
-              </div>
-            </div>
-          </section>
-
-
 
           {adminMessage ? (
             <section className={`panel ${adminMessageIsError ? 'status-error' : 'status-success'}`}>
@@ -509,57 +448,93 @@ export default function App() {
             </section>
           ) : null}
 
-
-          
-
-
-
-
-          <section className="panel">
-            <div className="section-head">
-              <div>
-                <h2>System-Health</h2>
-                <p className="muted no-margin">Kleine Kontrolle.</p>
-              </div>
-            </div>
-            <div className="stats-grid stats-grid-6 system-health-compact">
-              <Stat title="Produkte" value={systemHealth?.products?.ok ? systemHealth.products.count : 'Fehler'} />
-              <Stat title="Offers" value={systemHealth?.offers?.ok ? systemHealth.offers.count : 'Fehler'} />
-              <Stat title="Crawl Jobs" value={systemHealth?.crawl_jobs?.ok ? systemHealth.crawl_jobs.count : 'Fehler'} />
-              <Stat title="Discovery" value={systemHealth?.discovery_queue?.ok ? systemHealth.discovery_queue.count : 'Fehler'} />
-              <Stat title="Monitoring" value={systemHealth?.monitoring_events?.ok ? systemHealth.monitoring_events.count : 'Fehler'} />
-            </div>
+          <section className="stats-grid stats-grid-6 admin-kpi-grid">
+            <Stat title="Produkte" value={dashboard?.stats?.products ?? '-'} />
+            <Stat title="Angebote" value={dashboard?.stats?.offers ?? '-'} />
+            <Stat title="Crawl Jobs" value={systemHealth?.crawl_jobs?.ok ? systemHealth.crawl_jobs.count : '-'} />
+            <Stat title="Discovery" value={systemHealth?.discovery_queue?.ok ? systemHealth.discovery_queue.count : '-'} />
+            <Stat title="Shop-Klicks" value={dashboard?.stats?.clicks ?? '-'} />
+            <Stat title="Klicks 24h" value={dashboard?.stats?.clicks24h ?? '-'} />
           </section>
 
-          <section className="panel">
+          <section className="panel go-live-panel">
             <div className="section-head">
               <div>
-                <h2>Produkt suchen für Shop-Overrides</h2>
-                <p className="muted no-margin">Neue Shops und Angebote direkt im Backend eintragen und bestehende Angebote pflegen.</p>
+                <h2>Crawl & Live-Steuerung</h2>
+                <p className="muted no-margin">Schnellaktionen für Import, Datenaktualisierung und Live-Kontrolle.</p>
               </div>
             </div>
             <div className="stack">
-              <div className="row gap-sm wrap">
-                <input value={adminQuery} onChange={e => setAdminQuery(e.target.value)} placeholder="Produktname, Marke oder Slug" />
-                <button className="btn btn-small" onClick={() => loadAdminProducts(adminQuery)}>Suchen</button>
+              <div className="go-live-grid go-live-grid-primary">
+                <button className="btn btn-small" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'fast')}>Fast Crawl alle Shops</button>
+                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('all', 'full')}>Full Crawl alle Shops</button>
+                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('digitec', 'fast')}>Digitec Fast</button>
+                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('brack', 'fast')}>BRACK Fast</button>
               </div>
-              {(adminProducts || []).map((item) => (
-                <div className="row line" key={item.slug}>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <div className="muted">{item.brand || '—'} · {item.offer_count} Shops · ab {formatPrice(item.best_price)}</div>
-                  </div>
-                  <button className="btn btn-small" onClick={() => openAdminEditor(item.slug)}>Bearbeiten</button>
-                </div>
-              ))}
+              <div className="go-live-grid go-live-grid-secondary">
+                <button className="btn btn-small btn-ghost" disabled={!!crawlActionLoading} onClick={() => triggerCrawl('interdiscount', 'fast')}>Interdiscount Fast</button>
+                <button className="btn btn-small btn-ghost" onClick={refreshAdminData}>Dashboard neu laden</button>
+              </div>
             </div>
           </section>
+
+          <div className="admin-grid admin-grid-main">
+            <section className="panel">
+              <div className="section-head">
+                <div>
+                  <h2>Produktpflege</h2>
+                  <p className="muted no-margin">Produkte suchen, Overrides prüfen und Angebote bearbeiten.</p>
+                </div>
+              </div>
+              <div className="stack">
+                <div className="row gap-sm wrap">
+                  <input value={adminQuery} onChange={e => setAdminQuery(e.target.value)} placeholder="Produktname, Marke oder Slug" />
+                  <button className="btn btn-small" onClick={() => loadAdminProducts(adminQuery)}>Suchen</button>
+                </div>
+                {(adminProducts || []).map((item) => (
+                  <div className="row line" key={item.slug}>
+                    <div>
+                      <strong>{item.title}</strong>
+                      <div className="muted">{item.brand || '—'} · {item.offer_count} Shops · ab {formatPrice(item.best_price)}</div>
+                    </div>
+                    <button className="btn btn-small" onClick={() => openAdminEditor(item.slug)}>Bearbeiten</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="section-head">
+                <div>
+                  <h2>Discovery & System</h2>
+                  <p className="muted no-margin">Queue-Status und technische Übersicht in einem Block.</p>
+                </div>
+              </div>
+              <div className="stats-grid stats-grid-3 admin-health-grid">
+                <Stat title="Produkte" value={systemHealth?.products?.ok ? systemHealth.products.count : 'Fehler'} subtle />
+                <Stat title="Offers" value={systemHealth?.offers?.ok ? systemHealth.offers.count : 'Fehler'} subtle />
+                <Stat title="Monitoring" value={systemHealth?.monitoring_events?.ok ? systemHealth.monitoring_events.count : 'Fehler'} subtle />
+              </div>
+              <div className="stack mt-16">
+                {discoveryQueue.length === 0 ? <p className="muted no-margin">Noch keine Discovery-Einträge vorhanden.</p> : null}
+                {discoveryQueue.slice(0, 8).map((item) => (
+                  <div className="row line" key={item.id}>
+                    <div>
+                      <strong>{item.source_name}</strong>
+                      <div className="muted">{item.page_type} · {item.status}</div>
+                      <div className="muted">{item.page_url}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
 
           <section className="panel">
             <div className="section-head">
               <div>
-                <h2>Shops selbst verwalten</h2>
-                <p className="muted no-margin">Neue Shops per Link eintragen und bestehende Shops direkt ändern.</p>
+                <h2>Shop-Quellen verwalten</h2>
+                <p className="muted no-margin">Neue Shops erfassen und bestehende Quellen sauber pflegen.</p>
               </div>
             </div>
             <div className="grid two-col">
@@ -572,9 +547,8 @@ export default function App() {
             <label className="field"><span>Hinweise</span><textarea rows="3" value={shopSourceForm.discovery_notes} onChange={e => setShopSourceForm({ ...shopSourceForm, discovery_notes: e.target.value })} placeholder="Hinweise für Discovery / Matching / Crawl" /></label>
             <div className="row gap-sm wrap">
               <button className="btn btn-small" onClick={saveShopSource}>Shop speichern</button>
-              <button className="btn btn-small btn-ghost" onClick={() => setShopSourceForm({ source_name: '', display_name: '', source_group: '', base_url: '', start_urls: '', discovery_notes: '', is_active: true })}>Formular leeren</button>
             </div>
-            <div className="stack" style={{marginTop:'14px'}}>
+            <div className="stack mt-16">
               {(shopSources || []).map((shop) => (
                 <div className="row line" key={shop.source_name}>
                   <div>
@@ -590,63 +564,6 @@ export default function App() {
             </div>
           </section>
 
-          <section className="panel">
-            <div className="section-head">
-              <div>
-                <h2>KI-Assistant im Backend</h2>
-                <p className="muted no-margin">Stelle Fragen oder gib Anweisungen. Die KI plant nur sichere Backend-Aktionen und kann sie kontrolliert ausführen.</p>
-              </div>
-            </div>
-            <label className="field">
-              <span>Nachricht an den Assistant</span>
-              <textarea rows="4" value={assistantInput} onChange={e => setAssistantInput(e.target.value)} placeholder="z. B. Prüfe Backend-Status, starte Fast Crawl für alle Shops, finde Duplikate und starte Discovery." />
-            </label>
-            <div className="row gap-sm wrap">
-              <button className="btn btn-small" onClick={planAssistant}>Aktionen planen</button>
-              <button className="btn btn-small btn-ghost" onClick={executeAssistantPlan} disabled={!assistantPlan?.actions?.length}>Geplante Aktionen ausführen</button>
-            </div>
-            <div className="stack" style={{marginTop:'14px'}}>
-              {assistantPlan ? (
-                <div className="offer-edit-card">
-                  <div><strong>Plan</strong></div>
-                  <div className="muted">{assistantPlan.summary}</div>
-                  <pre style={{whiteSpace:'pre-wrap', margin:'10px 0 0'}}>{JSON.stringify(assistantPlan.actions || [], null, 2)}</pre>
-                </div>
-              ) : <p className="muted no-margin">Noch kein Plan erstellt.</p>}
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="section-head">
-              <div>
-                <h2>Discovery Queue</h2>
-                <p className="muted no-margin">Gefundene und zu verarbeitende Seiten aus den eingetragenen Start-Links.</p>
-              </div>
-            </div>
-            <div className="stack">
-              {discoveryQueue.length === 0 ? <p className="muted no-margin">Noch keine Discovery-Einträge vorhanden.</p> : null}
-              {discoveryQueue.map((item) => (
-                <div className="row line" key={item.id}>
-                  <div>
-                    <strong>{item.source_name}</strong>
-                    <div className="muted">{item.page_type} · {item.status}</div>
-                    <div className="muted">{item.page_url}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="login-hint" style={{marginTop:'12px'}}>Discovery durchsucht die eingetragenen Start-Links, sammelt weitere Produkt- und Kategorie-Links und legt sie in einer Queue ab. Der Crawler arbeitet die Queue im Hintergrund ab.</div>
-          </section>
-
-          <section className="stats-grid stats-grid-6">
-            <Stat title="Produkte" value={dashboard?.stats?.products ?? '-'} />
-            <Stat title="Angebote" value={dashboard?.stats?.offers ?? '-'} />
-            <Stat title="Alerts" value={dashboard?.stats?.alerts ?? '-'} />
-            <Stat title="Suchanfragen" value={dashboard?.stats?.searches ?? '-'} />
-            <Stat title="Shop-Klicks" value={dashboard?.stats?.clicks ?? '-'} />
-            <Stat title="Klicks 24h" value={dashboard?.stats?.clicks24h ?? '-'} />
-          </section>
-
           {adminEditor ? (
             <section className="panel">
               <div className="section-head">
@@ -657,12 +574,7 @@ export default function App() {
               </div>
               <div className="stack">
                 <div className="offer-edit-card">
-                  <div className="row line no-border">
-                    <div>
-                      <strong>Neues Shop-Angebot hinzufügen</strong>
-                      <div className="muted">Digitec und Galaxus können derselben Gruppe zugeordnet werden, bleiben aber als eigene Shops getrennt.</div>
-                    </div>
-                  </div>
+                  <strong>Neues Shop-Angebot hinzufügen</strong>
                   <div className="grid two-col">
                     <label className="field"><span>Shop-Name</span><input value={newOffer.shop_name} onChange={e => setNewOffer({ ...newOffer, shop_name: e.target.value })} placeholder="z. B. Galaxus" /></label>
                     <label className="field"><span>Quelle</span>
@@ -674,12 +586,12 @@ export default function App() {
                         {shopSources.map((shop) => <option key={shop.source_name} value={shop.source_name}>{shop.display_name}</option>)}
                       </select>
                     </label>
-                    <label className="field"><span>Quellen-Gruppe</span><input value={newOffer.source_group} onChange={e => setNewOffer({ ...newOffer, source_group: e.target.value })} placeholder="z. B. dg_group" /></label>
-                    <label className="field"><span>Preis</span><input value={newOffer.price} onChange={e => setNewOffer({ ...newOffer, price: e.target.value })} placeholder="1099" /></label>
-                    <label className="field"><span>Währung</span><input value={newOffer.currency} onChange={e => setNewOffer({ ...newOffer, currency: e.target.value })} placeholder="CHF" /></label>
-                    <label className="field"><span>Shop-URL</span><input value={newOffer.product_url} onChange={e => setNewOffer({ ...newOffer, product_url: e.target.value })} placeholder="https://..." /></label>
-                    <label className="field"><span>Affiliate-URL</span><input value={newOffer.affiliate_url} onChange={e => setNewOffer({ ...newOffer, affiliate_url: e.target.value })} placeholder="optional" /></label>
-                    <label className="field"><span>Bild-URL</span><input value={newOffer.image_url} onChange={e => setNewOffer({ ...newOffer, image_url: e.target.value })} placeholder="optional" /></label>
+                    <label className="field"><span>Quellen-Gruppe</span><input value={newOffer.source_group} onChange={e => setNewOffer({ ...newOffer, source_group: e.target.value })} /></label>
+                    <label className="field"><span>Preis</span><input value={newOffer.price} onChange={e => setNewOffer({ ...newOffer, price: e.target.value })} /></label>
+                    <label className="field"><span>Währung</span><input value={newOffer.currency} onChange={e => setNewOffer({ ...newOffer, currency: e.target.value })} /></label>
+                    <label className="field"><span>Shop-URL</span><input value={newOffer.product_url} onChange={e => setNewOffer({ ...newOffer, product_url: e.target.value })} /></label>
+                    <label className="field"><span>Affiliate-URL</span><input value={newOffer.affiliate_url} onChange={e => setNewOffer({ ...newOffer, affiliate_url: e.target.value })} /></label>
+                    <label className="field"><span>Bild-URL</span><input value={newOffer.image_url} onChange={e => setNewOffer({ ...newOffer, image_url: e.target.value })} /></label>
                   </div>
                   <div className="row gap-sm wrap">
                     <button className="btn btn-small" onClick={createNewOffer}>Shop-Angebot hinzufügen</button>
@@ -693,10 +605,6 @@ export default function App() {
                         <strong>{offer.shop_name}</strong>
                         <div className="muted">Preis {formatPrice(offer.price)} · Quelle {offer.source_name || '—'}</div>
                       </div>
-                      <label className="toggle">
-                        <input type="checkbox" checked={!!editorState[offer.id]?.is_hidden} onChange={e => setEditorState({ ...editorState, [offer.id]: { ...editorState[offer.id], is_hidden: e.target.checked } })} />
-                        <span>Angebot ausblenden</span>
-                      </label>
                     </div>
                     <div className="grid two-col">
                       <label className="field"><span>Shop-Name</span><input value={editorState[offer.id]?.shop_name || ''} onChange={e => setEditorState({ ...editorState, [offer.id]: { ...editorState[offer.id], shop_name: e.target.value } })} /></label>
@@ -704,11 +612,10 @@ export default function App() {
                       <label className="field"><span>Quelle</span><input value={editorState[offer.id]?.source_name || ''} onChange={e => setEditorState({ ...editorState, [offer.id]: { ...editorState[offer.id], source_name: e.target.value } })} /></label>
                       <label className="field"><span>Quellen-Gruppe</span><input value={editorState[offer.id]?.source_group || ''} onChange={e => setEditorState({ ...editorState, [offer.id]: { ...editorState[offer.id], source_group: e.target.value } })} /></label>
                       <label className="field"><span>Shop-URL</span><input value={editorState[offer.id]?.product_url || ''} onChange={e => setEditorState({ ...editorState, [offer.id]: { ...editorState[offer.id], product_url: e.target.value } })} /></label>
-                      <label className="field"><span>Affiliate-URL (optional)</span><input value={editorState[offer.id]?.affiliate_url || ''} onChange={e => setEditorState({ ...editorState, [offer.id]: { ...editorState[offer.id], affiliate_url: e.target.value } })} placeholder="Falls leer, wird die Shop-URL genutzt" /></label>
+                      <label className="field"><span>Affiliate-URL</span><input value={editorState[offer.id]?.affiliate_url || ''} onChange={e => setEditorState({ ...editorState, [offer.id]: { ...editorState[offer.id], affiliate_url: e.target.value } })} /></label>
                     </div>
                     <div className="row gap-sm wrap">
                       <button className="btn btn-small" onClick={() => saveOffer(offer.id)}>Speichern</button>
-                      <a className="btn btn-small btn-ghost" href={offer.redirect_url || '#'} target="_blank" rel="noreferrer">Test-Link</a>
                     </div>
                   </div>
                 ))}
@@ -770,20 +677,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <div className="subpanel light-panel mt-16">
-              <h3>Letzte Klicks</h3>
-              <div className="stack">
-                {(dashboard?.recentClicks || []).map((item, i) => (
-                  <div className="row line" key={`${item.product_slug}-${item.created_at}-${i}`}>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <div className="muted">{item.shop_name}</div>
-                    </div>
-                    <div className="muted">{formatDate(item.created_at)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
           </section>
         </main>
       </div>
@@ -801,13 +694,11 @@ export default function App() {
               <div className="badge">{selected.offers?.length > 1 ? `${selected.offers.length} Shops im Vergleich` : '1 Shop verfügbar'}</div>
               <h1 className="product-title">{selected.title}</h1>
               <p className="product-copy">{selected.ai_summary || recommendationText(selected.deal_score ?? 0)}</p>
-
               <div className="trust-strip product-trust-strip">
                 <TrustBullet icon="✓">Schweizer Shops</TrustBullet>
                 <TrustBullet icon="↻">Laufend aktualisiert</TrustBullet>
                 <TrustBullet icon="₿">Direkte Shop-Weiterleitung</TrustBullet>
               </div>
-
               <div className="detail-list">
                 <div><span>Marke</span><strong>{selected.brand || '—'}</strong></div>
                 <div><span>Kategorie</span><strong>{selected.category || '—'}</strong></div>
@@ -864,7 +755,7 @@ export default function App() {
   }
 
   const resultsTitle = route === '/search' && query ? `Ergebnisse für „${query}“` : 'Aktuelle Angebote'
-  const searchCtaHref = query ? '#/search' : '#/search'
+  const searchCtaHref = '#/search'
 
   return (
     <div className="shell">
@@ -874,15 +765,9 @@ export default function App() {
           <div className="home-logo">KAUVIO<span className="brand-point">.</span></div>
           <p className="home-subtitle">Preisvergleich Schweiz</p>
           <h1 className="home-title">Suche. Vergleiche. Kaufe smarter.</h1>
-          <p className="home-lead">
-            Finde in Sekunden aktuelle Preise aus Schweizer Shops – klar, schnell und ohne Umwege.
-          </p>
+          <p className="home-lead">Finde in Sekunden aktuelle Preise aus Schweizer Shops – klar, schnell und ohne Umwege.</p>
           <div className="search-shell hero-search home-search-centered">
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Produkt, Modell oder Marke suchen (z. B. iPhone 15 Pro 256GB)"
-            />
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Produkt, Modell oder Marke suchen (z. B. iPhone 15 Pro 256GB)" />
             <a className="btn hero-search-btn" href={searchCtaHref}>Jetzt vergleichen</a>
           </div>
           <div className="home-trust-row">
@@ -899,7 +784,6 @@ export default function App() {
               <p className="muted no-margin">Direkt aus dem aktuellen Live-Import.</p>
             </div>
           </div>
-
           {loadingProducts ? (
             <div className="empty-state">
               <h3>Produkte werden geladen</h3>
@@ -941,18 +825,17 @@ export default function App() {
         </section>
 
         <footer className="site-footer">
-          <div className="footer-inner">
+          <div className="footer-inner footer-inner-pro">
             <div>
               <strong>Kauvio</strong>
-              <p className="muted no-margin">Schweizer Preisvergleich mit Fokus auf klare Preise und direkte Wege zum passenden Shop.</p>
+              <p className="muted no-margin">Schweizer Preisvergleich mit Fokus auf klare Preise, Vertrauen und direkte Wege zum passenden Shop.</p>
             </div>
             <div className="footer-links">
               <a href="#/impressum">Impressum</a>
-              <a href="#/admin/login">Interner Bereich</a>
+              <a href="#/admin/login">Intern</a>
             </div>
           </div>
         </footer>
-
       </main>
     </div>
   )
