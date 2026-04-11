@@ -1,7 +1,6 @@
 import { Pool } from 'pg'
 import { ensureCoreSchema } from '../../database/ensure_schema.mjs'
 import { normalizeDbUrl } from '../../database/normalize_db_url.mjs'
-import { canonicalModelKey } from '../../webapp/server/ai_search_runtime.mjs'
 
 const DATABASE_URL = normalizeDbUrl(process.env.DATABASE_URL)
 console.log('[worker] Using DB host from DATABASE_URL:', new URL(DATABASE_URL).hostname)
@@ -10,6 +9,23 @@ const interval = Number(process.env.ALERT_CHECK_INTERVAL_SECONDS || 120)
 const AI_SEARCH_INTERVAL_SECONDS = Number(process.env.AI_SEARCH_WORKER_INTERVAL_SECONDS || 30)
 const TOPPREISE_BASE = 'https://www.toppreise.ch/produktsuche?q='
 const TITLE_BRAND_RE = /(Apple|Samsung|Google|Xiaomi|Sony|Nokia|Motorola|Asus|Lenovo|HP|Acer|Dell|MSI|Jabra|Bose|Nothing|Honor|Huawei|Fairphone|Microsoft|DJI|Roborock|Philips|Logitech|Intel|Panasonic|Ecovacs|Dyson|Bambu|Sonos|Corsair)/i
+
+function normalizeSearchText(input = '') {
+  return String(input || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function canonicalModelKey({ brand = '', title = '', specs = '' } = {}) {
+  return normalizeSearchText(`${brand} ${title} ${specs}`)
+    .replace(/\b(5g|lte|wifi|bluetooth|dual sim|esim|smartphone|notebook|headphones|kopfhorer|kopfhörer|staubsauger|black|white|blue|green|gray|grey|silver|gold)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 function htmlToLines(html = '') {
   return String(html)
