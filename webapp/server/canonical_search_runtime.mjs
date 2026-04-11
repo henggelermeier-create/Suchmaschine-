@@ -13,6 +13,14 @@ function canonicalSlug(id) {
   return `canonical-${id}`
 }
 
+function decisionFromCanonical(row) {
+  if (row.deal_label) return { label: row.deal_label }
+  if (Number(row.deal_score || 0) >= 90) return { label: 'Top Preis' }
+  if (Number(row.deal_score || 0) >= 78) return { label: 'Guter Preis' }
+  if (Number(row.offer_count || 0) >= 3) return { label: 'KI Vergleich' }
+  return { label: 'Live KI' }
+}
+
 export async function fetchCanonicalSearchResults(pool, query = '', limit = 60) {
   const q = String(query || '').trim()
   const params = []
@@ -31,13 +39,18 @@ export async function fetchCanonicalSearchResults(pool, query = '', limit = 60) 
       cp.brand,
       cp.category,
       cp.ai_summary,
-      cp.image_url,
+      COALESCE(cp.image_url, (ARRAY_AGG(so.image_url ORDER BY so.updated_at DESC))[1]) AS image_url,
       COALESCE(cp.best_price, MIN(so.price)) AS price,
       COALESCE((ARRAY_AGG(so.provider ORDER BY so.price ASC NULLS LAST, so.updated_at DESC))[1], 'KI Index') AS shop_name,
       COALESCE(cp.offer_count, COUNT(so.*)::int) AS offer_count,
       COALESCE(cp.source_count, COUNT(DISTINCT so.provider)::int) AS source_count,
       COALESCE(cp.popularity_score, 0) AS popularity_score,
       COALESCE(cp.freshness_priority, 0) AS freshness_priority,
+      COALESCE(cp.deal_score, 0) AS deal_score,
+      cp.deal_label,
+      cp.price_avg_30d,
+      cp.price_low_30d,
+      cp.price_high_30d,
       COALESCE(cp.updated_at, NOW()) AS updated_at
     FROM canonical_products cp
     LEFT JOIN source_offers_v2 so ON so.canonical_product_id = cp.id AND so.is_active = true
@@ -60,10 +73,15 @@ export async function fetchCanonicalSearchResults(pool, query = '', limit = 60) 
     source_count: Number(row.source_count || 0),
     popularity_score: Number(row.popularity_score || 0),
     freshness_priority: Number(row.freshness_priority || 0),
+    deal_score: Number(row.deal_score || 0),
+    deal_label: row.deal_label || null,
+    price_avg_30d: row.price_avg_30d != null ? Number(row.price_avg_30d) : null,
+    price_low_30d: row.price_low_30d != null ? Number(row.price_low_30d) : null,
+    price_high_30d: row.price_high_30d != null ? Number(row.price_high_30d) : null,
     updated_at: row.updated_at,
     is_canonical: true,
     canonical_id: row.id,
-    decision: Number(row.offer_count || 0) >= 3 ? { label: 'KI Vergleich' } : { label: 'Live KI' }
+    decision: decisionFromCanonical(row)
   }))
 }
 
@@ -88,7 +106,7 @@ export async function fetchCanonicalProductBySlug(pool, slug) {
   if (!Number.isFinite(canonicalId)) return null
 
   const product = await pool.query(
-    `SELECT id, title, brand, category, ai_summary, image_url, best_price, best_price_currency, offer_count, source_count, popularity_score, freshness_priority, updated_at
+    `SELECT id, title, brand, category, ai_summary, image_url, best_price, best_price_currency, offer_count, source_count, popularity_score, freshness_priority, deal_score, deal_label, price_avg_30d, price_low_30d, price_high_30d, updated_at
      FROM canonical_products WHERE id = $1 LIMIT 1`,
     [canonicalId]
   )
@@ -112,6 +130,7 @@ export async function fetchCanonicalProductBySlug(pool, slug) {
     is_hidden: false,
   }))
   const cheapest = normalizedOffers[0] || null
+  const fallbackImage = normalizedOffers.find((offer) => offer.image_url)?.image_url || null
 
   return {
     slug: canonicalSlug(row.id),
@@ -119,7 +138,7 @@ export async function fetchCanonicalProductBySlug(pool, slug) {
     brand: row.brand,
     category: row.category,
     ai_summary: row.ai_summary,
-    image_url: row.image_url,
+    image_url: row.image_url || fallbackImage,
     price: cheapest?.price ?? (row.best_price != null ? Number(row.best_price) : null),
     currency: row.best_price_currency || 'CHF',
     shop_name: cheapest?.shop_name || 'KI Index',
@@ -129,7 +148,12 @@ export async function fetchCanonicalProductBySlug(pool, slug) {
     source_count: Number(row.source_count || 0),
     popularity_score: Number(row.popularity_score || 0),
     freshness_priority: Number(row.freshness_priority || 0),
-    decision: normalizedOffers.length >= 3 ? { label: 'KI Vergleich' } : { label: 'Live KI' },
+    deal_score: Number(row.deal_score || 0),
+    deal_label: row.deal_label || null,
+    price_avg_30d: row.price_avg_30d != null ? Number(row.price_avg_30d) : null,
+    price_low_30d: row.price_low_30d != null ? Number(row.price_low_30d) : null,
+    price_high_30d: row.price_high_30d != null ? Number(row.price_high_30d) : null,
+    decision: decisionFromCanonical(row),
     offers: normalizedOffers,
     is_canonical: true,
     canonical_id: row.id,

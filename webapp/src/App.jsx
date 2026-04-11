@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 function routeNow() {
   return window.location.hash.replace(/^#/, '') || '/'
@@ -54,15 +54,21 @@ function Stat({ title, value }) {
   return <div className="stat-card"><div className="muted">{title}</div><strong>{value}</strong></div>
 }
 
+function DecisionBadge({ item }) {
+  const label = item.deal_label || item.decision?.label || 'KI Vergleich'
+  return <span className="result-pill">{label}</span>
+}
+
 function SearchCard({ item }) {
   return (
     <a className="result-card-pro" href={`#/product/${item.slug}`}>
       <div className="result-card-copy">
         <div className="result-card-title">{item.title}</div>
         <div className="result-card-meta">{item.brand || '—'} · {item.category || 'Produkt'} · {item.offer_count || 0} Shops</div>
+        <div className="result-card-submeta">Bestpreis · {formatPrice(item.price)}{item.shop_name ? ` · ${item.shop_name}` : ''}</div>
       </div>
       <div className="result-card-side">
-        <span className="result-pill">{item.decision?.label || 'KI Vergleich'}</span>
+        <DecisionBadge item={item} />
         <strong className="price-inline">{formatPrice(item.price)}</strong>
       </div>
     </a>
@@ -78,6 +84,8 @@ export default function App() {
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [selected, setSelected] = useState(null)
   const [searchError, setSearchError] = useState('')
+  const [pollMessage, setPollMessage] = useState('')
+  const pollRef = useRef(null)
 
   const [login, setLogin] = useState({ email: 'admin@kauvio.ch', password: '' })
   const [loginError, setLoginError] = useState('')
@@ -124,6 +132,35 @@ export default function App() {
     refreshAdminData()
   }, [route, adminToken])
 
+  useEffect(() => {
+    if (!liveSearch?.query || products.length > 0) {
+      if (pollRef.current) clearInterval(pollRef.current)
+      pollRef.current = null
+      if (products.length > 0) setPollMessage('')
+      return
+    }
+    if (pollRef.current) clearInterval(pollRef.current)
+    setPollMessage('Die KI sucht live weiter und lädt Ergebnisse automatisch nach …')
+    pollRef.current = setInterval(async () => {
+      try {
+        const data = await api(`/api/products?q=${encodeURIComponent(liveSearch.query)}`)
+        setProducts(data.items || [])
+        setLiveSearch(data.liveSearch || null)
+        if ((data.items || []).length > 0) {
+          setPollMessage('Neue Resultate wurden gefunden.')
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
+      } catch {
+        setPollMessage('Live-Suche läuft weiter …')
+      }
+    }, 8000)
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [liveSearch?.query, products.length])
+
   const featured = useMemo(() => products.slice(0, 20), [products])
   const adminMessageIsError = /fehler|nicht|ungültig|failed|error/i.test(adminMessage || '')
 
@@ -131,6 +168,7 @@ export default function App() {
     const cleaned = String(nextQuery || '').trim()
     if (!cleaned) return
     setSearchError('')
+    setPollMessage('')
     setLoadingProducts(true)
     try {
       const data = await api(`/api/products?q=${encodeURIComponent(cleaned)}`)
@@ -150,6 +188,7 @@ export default function App() {
     const cleaned = String(query || '').trim()
     if (!cleaned) return
     setSearchError('')
+    setPollMessage('')
     setLoadingProducts(true)
     try {
       const data = await api('/api/ai/search/start', { method: 'POST', body: JSON.stringify({ query: cleaned }) })
@@ -316,10 +355,8 @@ export default function App() {
             </div>
             <div className="row gap-sm wrap"><button className="btn btn-small btn-ghost" onClick={refreshAdminData}>Neu laden</button><button className="btn btn-small btn-ghost" onClick={logoutAdmin}>Abmelden</button></div>
           </section>
-
           {adminMessage ? <section className={`panel ${adminMessageIsError ? 'status-error' : 'status-success'}`}><p className="no-margin">{adminMessage}</p></section> : null}
           {adminLoading ? <section className="panel"><p className="muted no-margin">Admin-Daten werden geladen…</p></section> : null}
-
           <section className="stats-grid stats-grid-6 admin-kpi-grid">
             <Stat title="Readiness" value={dashboard?.readiness?.score != null ? `${dashboard.readiness.score}%` : '-'} />
             <Stat title="Produkte" value={dashboard?.stats?.products ?? '-'} />
@@ -328,18 +365,15 @@ export default function App() {
             <Stat title="Seeds" value={dashboard?.stats?.autonomousSeeds ?? '-'} />
             <Stat title="Learned Queries" value={dashboard?.stats?.learnedQueries ?? '-'} />
           </section>
-
           <section className="panel">
             <div className="section-head"><div><h2>KI Suche jetzt starten</h2><p className="muted no-margin">Direkt einen AI-Search-Task anstoßen.</p></div></div>
             <div className="row gap-sm wrap"><input value={aiSearchQuery} onChange={e => setAiSearchQuery(e.target.value)} placeholder="z. B. iPhone 16 Pro 256 GB" /><button className="btn btn-small" onClick={startAdminAiSearch}>KI Suche starten</button></div>
             <div className="muted" style={{ marginTop: 12 }}>{dashboard?.readiness?.summary || 'Go-Live-Status wird geladen'}</div>
           </section>
-
           <section className="panel">
             <div className="section-head"><div><h2>KI Assistant</h2><p className="muted no-margin">Natürliche Anweisungen für sichere Backend-Aktionen.</p></div></div>
             <div className="stack"><textarea rows="4" value={assistantInput} onChange={e => setAssistantInput(e.target.value)} placeholder="z. B. KI Suche: Dyson V15 oder Go-Live-Status prüfen" /><div className="row gap-sm wrap"><button className="btn btn-small" onClick={planAssistant}>Plan erstellen</button><button className="btn btn-small btn-ghost" onClick={executeAssistantPlan} disabled={!assistantPlan?.actions?.length}>Plan ausführen</button></div>{assistantPlan ? <div className="subpanel light-panel"><strong>{assistantPlan.summary}</strong><div className="stack mt-16">{(assistantPlan.actions || []).map((action, index) => <div className="row line" key={index}><code>{action.type}</code><span className="muted">{JSON.stringify(action)}</span></div>)}</div></div> : null}</div>
           </section>
-
           <div className="admin-grid admin-grid-main">
             <section className="panel">
               <div className="section-head"><div><h2>AI Controls</h2><p className="muted no-margin">Lernlogik, autonome Builder und Small-Shop-Balance.</p></div></div>
@@ -351,31 +385,9 @@ export default function App() {
               <div className="stack mt-16">{aiRuntimeEvents.slice(0, 12).map((event) => <div className="row line" key={event.id}><div><strong>{event.event_type}</strong><div className="muted">{event.source_key || 'global'} · {event.severity}</div></div><div className="muted">{formatDate(event.created_at)}</div></div>)}</div>
             </section>
           </div>
-
           <section className="panel">
             <div className="section-head"><div><h2>Schweizer Quellen</h2><p className="muted no-margin">Quelle, Priorität, kleine Shops, Boost und Runtime-Werte.</p></div></div>
             <div className="stack">{swissSources.slice(0, 12).map((source) => <div className="offer-edit-card" key={source.source_key}><div className="row line no-border"><div><strong>{source.display_name}</strong><div className="muted">{source.source_key} · {source.source_size}{source.is_small_shop ? ' · kleiner Shop' : ''}</div></div><div className="muted">{source.last_runtime_status || 'kein Status'}</div></div><div className="grid two-col"><label className="field"><span>Priorität</span><input value={swissSourceEditor[source.source_key]?.priority ?? ''} onChange={e => setSwissSourceEditor({ ...swissSourceEditor, [source.source_key]: { ...swissSourceEditor[source.source_key], priority: Number(e.target.value) } })} /></label><label className="field"><span>Confidence</span><input value={swissSourceEditor[source.source_key]?.confidence_score ?? ''} onChange={e => setSwissSourceEditor({ ...swissSourceEditor, [source.source_key]: { ...swissSourceEditor[source.source_key], confidence_score: Number(e.target.value) } })} /></label><label className="field"><span>Refresh</span><input value={swissSourceEditor[source.source_key]?.refresh_interval_minutes ?? ''} onChange={e => setSwissSourceEditor({ ...swissSourceEditor, [source.source_key]: { ...swissSourceEditor[source.source_key], refresh_interval_minutes: Number(e.target.value) } })} /></label><label className="field"><span>Manual Boost</span><input value={swissSourceEditor[source.source_key]?.manual_boost ?? ''} onChange={e => setSwissSourceEditor({ ...swissSourceEditor, [source.source_key]: { ...swissSourceEditor[source.source_key], manual_boost: Number(e.target.value) } })} /></label></div><div className="grid two-col"><label className="field"><span>Kleiner Shop</span><input type="checkbox" checked={!!swissSourceEditor[source.source_key]?.is_small_shop} onChange={e => setSwissSourceEditor({ ...swissSourceEditor, [source.source_key]: { ...swissSourceEditor[source.source_key], is_small_shop: e.target.checked } })} /></label><label className="field"><span>Aktiv</span><input type="checkbox" checked={!!swissSourceEditor[source.source_key]?.is_active} onChange={e => setSwissSourceEditor({ ...swissSourceEditor, [source.source_key]: { ...swissSourceEditor[source.source_key], is_active: e.target.checked } })} /></label></div><button className="btn btn-small" onClick={() => saveSwissSource(source.source_key)}>Quelle speichern</button></div>)}</div>
-          </section>
-
-          <div className="admin-grid admin-grid-main">
-            <section className="panel">
-              <div className="section-head"><div><h2>Autonome Seed-Kandidaten</h2><p className="muted no-margin">Die KI baut daraus selbst neue Suchläufe auf.</p></div></div>
-              <div className="stack">{autonomousSeeds.slice(0, 12).map((seed) => <div className="row line" key={seed.id}><div><strong>{seed.query}</strong><div className="muted">{seed.seed_source} · {seed.status}</div></div><div className="muted">P {seed.priority}</div></div>)}</div>
-            </section>
-            <section className="panel">
-              <div className="section-head"><div><h2>Suchjobs & Canonicals</h2><p className="muted no-margin">Aktive KI-Suchläufe und stärkste Canonical-Produkte.</p></div></div>
-              <div className="stack">{searchTasks.slice(0, 8).map((task) => <div className="row line" key={task.id}><div><strong>{task.query}</strong><div className="muted">{task.status} · {task.strategy}</div></div><div className="muted">{task.result_count || 0}</div></div>)}</div>
-              <div className="stack mt-16">{canonicalProducts.slice(0, 8).map((item) => <div className="row line" key={item.id}><div><strong>{item.title}</strong><div className="muted">{item.brand || '—'} · {item.offer_count || 0} Offers</div></div><div className="muted">{formatPrice(item.best_price)}</div></div>)}</div>
-            </section>
-          </div>
-
-          <section className="panel">
-            <div className="section-head"><div><h2>System Health</h2><p className="muted no-margin">Schneller Überblick über den Go-Live-Kern.</p></div></div>
-            <div className="stats-grid stats-grid-3 admin-health-grid">
-              <Stat title="Produkte" value={systemHealth?.products?.ok ? systemHealth.products.count : 'Fehler'} />
-              <Stat title="AI Query Memory" value={systemHealth?.ai_query_memory?.ok ? systemHealth.ai_query_memory.count : 'Fehler'} />
-              <Stat title="AI Seed Candidates" value={systemHealth?.ai_seed_candidates?.ok ? systemHealth.ai_seed_candidates.count : 'Fehler'} />
-            </div>
           </section>
         </main>
       </div>
@@ -388,13 +400,13 @@ export default function App() {
         <Header />
         <main className="content product-page">
           <section className="panel product-hero-panel">
-            <div className="badge">{selected.offer_count || selected.offers?.length || 0} Shops im Vergleich</div>
+            <div className="badge">{selected.deal_label || selected.decision?.label || 'KI Vergleich'}</div>
             <h1 className="product-title">{selected.title}</h1>
             <p className="product-copy">{selected.ai_summary || 'KI-aufbereiteter Produktvergleich für die Schweiz.'}</p>
             <div className="detail-list"><div><span>Marke</span><strong>{selected.brand || '—'}</strong></div><div><span>Kategorie</span><strong>{selected.category || '—'}</strong></div><div><span>Bestpreis</span><strong>{formatPrice(selected.price)}</strong></div></div>
           </section>
           <section className="panel comparison-panel">
-            <div className="section-head"><div><h2>Preisvergleich</h2><p className="muted no-margin">Aktuelle Angebote für dieses Produkt.</p></div></div>
+            <div className="section-head"><div><h2>Preisvergleich</h2><p className="muted no-margin">Bestpreis und alle Shops mit Direktlink.</p></div></div>
             <div className="offers-table">{(selected.offers || []).map((offer, idx) => <div className={`offer-row ${idx === 0 ? 'offer-row-best' : ''}`} key={`${offer.shop_name}-${idx}`}><div className="offer-shop"><strong>{offer.shop_name}</strong><div className="muted">Zuletzt aktualisiert: {formatDate(offer.updated_at)}</div></div><div className="offer-row-right"><strong className="offer-price">{formatPrice(offer.price)}</strong><a className="btn btn-small" href={`/r/${selected.slug}/${encodeURIComponent(offer.shop_name)}`} target="_blank" rel="noreferrer">Zum Shop</a></div></div>)}</div>
           </section>
         </main>
@@ -412,20 +424,20 @@ export default function App() {
           <h1 className="home-title">Die KI findet, priorisiert und vergleicht Schweizer Produkte.</h1>
           <p className="home-lead">Suche direkt im Index oder starte bei Bedarf sofort eine Live-KI-Suche über Schweizer Quellen.</p>
           <div className="search-shell hero-search home-search-centered">
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="z. B. iPhone 16 Pro, Dyson V15 oder Sony WH-1000XM6" />
+            <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runPublicSearch(query) }} placeholder="z. B. iPhone 16 Pro, Dyson V15 oder Sony WH-1000XM6" />
             <button className="btn hero-search-btn" onClick={() => runPublicSearch(query)}>Suchen</button>
           </div>
           <div className="home-trust-row"><span className="trust-item"><span className="trust-icon">AI</span>KI-Orchestrierung</span><span className="trust-item"><span className="trust-icon">CH</span>Schweizer Quellen</span><span className="trust-item"><span className="trust-icon">✓</span>Canonical Vergleich</span></div>
         </section>
 
-        {liveSearch ? <section className="panel"><div className="section-head"><div><h2>KI Suche läuft</h2><p className="muted no-margin">{liveSearch.userVisibleNote || 'Die KI sammelt gerade Schweizer Quellen.'}</p></div></div><div className="row gap-sm wrap"><div className="subpanel light-panel"><strong>Suchauftrag</strong><div className="muted">{liveSearch.query || query}</div></div><div className="subpanel light-panel"><strong>Status</strong><div className="muted">{liveSearch.status || 'pending'}</div></div><div className="subpanel light-panel"><strong>Strategie</strong><div className="muted">{liveSearch.strategy || 'swiss_ai_live'}</div></div></div></section> : null}
+        {liveSearch ? <section className="panel"><div className="section-head"><div><h2>KI Suche läuft</h2><p className="muted no-margin">{liveSearch.userVisibleNote || 'Die KI sammelt gerade Schweizer Quellen.'}</p></div></div><div className="row gap-sm wrap"><div className="subpanel light-panel"><strong>Suchauftrag</strong><div className="muted">{liveSearch.query || query}</div></div><div className="subpanel light-panel"><strong>Status</strong><div className="muted">{liveSearch.status || 'pending'}</div></div><div className="subpanel light-panel"><strong>Strategie</strong><div className="muted">{liveSearch.strategy || 'swiss_ai_live'}</div></div></div>{pollMessage ? <p className="muted" style={{ marginTop: 12 }}>{pollMessage}</p> : null}</section> : null}
 
         {searchError ? <section className="panel status-error"><p className="no-margin">{searchError}</p></section> : null}
 
-        {!loadingProducts && !featured.length && query.trim() ? <section className="panel"><div className="section-head"><div><h2>Keine lokalen Resultate</h2><p className="muted no-margin">Starte die Live-KI-Suche jetzt sofort.</p></div></div><button className="btn btn-small" onClick={startManualAiSearchPublic}>KI Suche jetzt starten</button></section> : null}
+        {!loadingProducts && !featured.length && query.trim() ? <section className="panel"><div className="section-head"><div><h2>Keine lokalen Resultate</h2><p className="muted no-margin">Starte die Live-KI-Suche jetzt sofort. Die Seite lädt Resultate danach automatisch nach.</p></div></div><button className="btn btn-small" onClick={startManualAiSearchPublic}>KI Suche jetzt starten</button></section> : null}
 
         <section className="panel search-results-panel">
-          <div className="section-head"><div><h2>Ergebnisse</h2><p className="muted no-margin">Normale Produkte und KI-Canonical-Ergebnisse in einer Suche.</p></div></div>
+          <div className="section-head"><div><h2>Ergebnisse</h2><p className="muted no-margin">Bestpreis, Deal-Label und alle gefundenen Shops.</p></div></div>
           {loadingProducts ? <div className="empty-state"><h3>Suche läuft</h3><p>Die aktuellen Ergebnisse werden geladen.</p></div> : featured.length ? <div className="results-list-pro">{featured.map((item) => <SearchCard item={item} key={item.slug} />)}</div> : <div className="empty-state"><h3>Noch keine Resultate</h3><p>Starte eine Suche oder direkt die KI-Suche.</p></div>}
         </section>
 
