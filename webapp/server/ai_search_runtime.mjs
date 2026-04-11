@@ -15,12 +15,12 @@ export function canonicalModelKey({ brand = '', title = '', specs = '' } = {}) {
     .trim()
 }
 
-function inferIntent(query = '') {
+export function inferIntent(query = '') {
   const q = normalizeSearchText(query)
   const tags = []
   if (/(iphone|galaxy|pixel|smartphone|handy|mobile)/.test(q)) tags.push('mobile', 'electronics')
   if (/(macbook|notebook|laptop|ultrabook|thinkpad)/.test(q)) tags.push('computing', 'electronics')
-  if (/(kopfhorer|kopfhorer|headphones|earbuds|airpods|soundbar|speaker|lautsprecher)/.test(q)) tags.push('audio', 'electronics')
+  if (/(kopfhorer|kopfhörer|headphones|earbuds|airpods|soundbar|speaker|lautsprecher)/.test(q)) tags.push('audio', 'electronics')
   if (/(dyson|staubsauger|vacuum|haushalt|washer|dryer|kuhlschrank|appliances)/.test(q)) tags.push('home', 'appliances')
   if (!tags.length) tags.push('electronics')
   return [...new Set(tags)]
@@ -38,15 +38,25 @@ async function loadPlannerSources(pool) {
 }
 
 async function loadRuntimeControls(pool) {
-  const result = await pool.query(
-    `SELECT control_key, is_enabled, control_value_json FROM ai_runtime_controls`
-  ).catch(() => ({ rows: [] }))
+  const result = await pool.query(`SELECT control_key, is_enabled, control_value_json FROM ai_runtime_controls`).catch(() => ({ rows: [] }))
   const map = new Map()
   for (const row of result.rows) map.set(row.control_key, row)
   return map
 }
 
-function sourceScore(source, intentTags = [], controlMap = new Map()) {
+async function loadQueryMemory(pool, normalizedQuery) {
+  if (!normalizedQuery) return null
+  const result = await pool.query(
+    `SELECT normalized_query, raw_query, success_count, failure_count, total_result_count, last_source_keys_json, learned_tags_json, updated_at
+     FROM ai_query_memory
+     WHERE normalized_query = $1
+     LIMIT 1`,
+    [normalizedQuery]
+  ).catch(() => ({ rows: [] }))
+  return result.rows[0] || null
+}
+
+function sourceScore(source, intentTags = [], controlMap = new Map(), memory = null) {
   const categories = Array.isArray(source.categories_json) ? source.categories_json : []
   let score = Number(source.priority || 0)
   for (const tag of intentTags) {
@@ -61,15 +71,26 @@ function sourceScore(source, intentTags = [], controlMap = new Map()) {
 
   const balance = controlMap.get('small_shop_balance')
   if (balance?.is_enabled && source.is_small_shop) {
-    const boost = Number(balance.control_value_json?.boost || 18)
-    score += boost
+    score += Number(balance.control_value_json?.boost || 18)
+  }
+
+  const learning = controlMap.get('query_learning')
+  if (learning?.is_enabled && memory) {
+    const memorySources = Array.isArray(memory.last_source_keys_json) ? memory.last_source_keys_json : []
+    const learnedTags = Array.isArray(memory.learned_tags_json) ? memory.learned_tags_json : []
+    if (memorySources.includes(source.source_key)) score += Number(learning.control_value_json?.source_boost || 35)
+    if (learnedTags.some((tag) => categories.includes(tag))) score += Number(learning.control_value_json?.tag_boost || 10)
+    score += Math.min(25, Number(memory.success_count || 0) * 2)
   }
   return score
 }
 
-function plannerReason(source, intentTags = [], controlMap = new Map()) {
+function plannerReason(source, intentTags = [], controlMap = new Map(), memory = null) {
   const matches = (Array.isArray(source.categories_json) ? source.categories_json : []).filter((tag) => intentTags.includes(tag))
   const balance = controlMap.get('small_shop_balance')
+  if (memory && Array.isArray(memory.last_source_keys_json) && memory.last_source_keys_json.includes(source.source_key)) {
+    return 'Früher erfolgreiche Quelle für ähnliche Suche'
+  }
   if (source.is_small_shop && balance?.is_enabled) return 'Kleiner Schweizer Shop wird bewusst mitberücksichtigt'
   if (matches.length) return `Passend für ${matches.join(', ')}`
   if (source.provider_kind === 'comparison_source') return 'Vergleichsquelle für schnelle Discovery'
@@ -90,7 +111,6 @@ function pickDiverseSources(planned = [], controlMap = new Map()) {
   const sorted = [...planned].sort((a, b) => b.score - a.score)
   const selected = []
   const used = new Set()
-
   const small = sorted.filter((item) => item.source.is_small_shop)
   const regular = sorted.filter((item) => !item.source.is_small_shop)
 
@@ -144,14 +164,15 @@ export async function enqueueLiveSearchTask(pool, query, requestedBy = 'public')
 
   const task = inserted.rows[0]
   const intentTags = inferIntent(query)
-  const [sources, controlMap] = await Promise.all([
+  const [sources, controlMap, memory] = await Promise.all([
     loadPlannerSources(pool),
     loadRuntimeControls(pool),
+    loadQueryMemory(pool, normalized),
   ])
   const planned = sources.map((source) => ({
     source,
-    score: sourceScore(source, intentTags, controlMap),
-    reason: plannerReason(source, intentTags, controlMap),
+    score: sourceScore(source, intentTags, controlMap, memory),
+    reason: plannerReason(source, intentTags, controlMap, memory),
   }))
   const selected = pickDiverseSources(planned, controlMap)
 

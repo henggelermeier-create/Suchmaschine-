@@ -77,32 +77,15 @@ function normalizeOffer(row) {
   }
 }
 
-function normalizeTextForMatch(input = '') {
-  return String(input || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\b(5g|lte|wifi|dual sim|esim|nano sim|smartphone|handy|notebook|laptop|kopfhörer|headphones|bluetooth|apple|samsung)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function tokenSet(str = '') {
-  return new Set(normalizeTextForMatch(str).split(' ').filter(Boolean))
-}
-
-function scoreProductSimilarity(a, b) {
-  const at = tokenSet(`${a.brand || ''} ${a.title || ''}`)
-  const bt = tokenSet(`${b.brand || ''} ${b.title || ''}`)
-  if (!at.size || !bt.size) return 0
-  let inter = 0
-  for (const t of at) if (bt.has(t)) inter++
-  const union = new Set([...at, ...bt]).size || 1
-  let score = inter / union
-  const memA = String(a.title || '').match(/\b(64|128|256|512|1024)\s?gb\b/i)?.[1]
-  const memB = String(b.title || '').match(/\b(64|128|256|512|1024)\s?gb\b/i)?.[1]
-  if (memA && memB && memA === memB) score += 0.15
-  if ((a.brand || '').toLowerCase() === (b.brand || '').toLowerCase()) score += 0.15
-  return Math.min(1, score)
+function publicTaskShape(task) {
+  return {
+    id: task.id,
+    query: task.query,
+    status: task.status,
+    strategy: task.strategy,
+    userVisibleNote: task.user_visible_note || 'Wir bereiten gerade Live-Ergebnisse aus Schweizer Quellen auf.',
+    resultCount: task.result_count || 0,
+  }
 }
 
 async function dbCount(sql) {
@@ -150,8 +133,8 @@ async function buildSystemHealth() {
   await add('swiss_sources', 'SELECT COUNT(*)::int AS c FROM swiss_sources')
   await add('ai_runtime_controls', 'SELECT COUNT(*)::int AS c FROM ai_runtime_controls')
   await add('ai_runtime_events', 'SELECT COUNT(*)::int AS c FROM ai_runtime_events')
-  await add('source_pages', 'SELECT COUNT(*)::int AS c FROM source_pages')
-  await add('source_offers_v2', 'SELECT COUNT(*)::int AS c FROM source_offers_v2')
+  await add('ai_query_memory', 'SELECT COUNT(*)::int AS c FROM ai_query_memory')
+  await add('ai_seed_candidates', 'SELECT COUNT(*)::int AS c FROM ai_seed_candidates')
   return checks
 }
 
@@ -163,8 +146,10 @@ function buildAssistantPlan(message = '') {
   if (/(kleine shops|small shops).*(stärker|boosten|mehr)/.test(text)) actions.push({ type: 'set_ai_control', control_key: 'small_shop_balance', patch: { min_small_shops: 3, boost: 24 } })
   if (/(runtime|laufzeit).*(notiz|note|merken)/.test(text)) actions.push({ type: 'log_runtime_note', note: message })
   if (/(duplikat|doppelt|merge)/.test(text)) actions.push({ type: 'scan_duplicates' })
+  const searchMatch = text.match(/(?:ki suche|ai search|suche starten|search start)\s*:?\s*(.+)$/i)
+  if (searchMatch?.[1]) actions.push({ type: 'start_ai_search', query: searchMatch[1].trim() })
   return {
-    summary: actions.length ? 'Sichere AI-Backend-Aktionen erkannt.' : 'Keine sichere Aktion erkannt. Formuliere z. B. „Go-Live-Status prüfen“ oder „Kleine Shops stärker gewichten“.',
+    summary: actions.length ? 'Sichere AI-Backend-Aktionen erkannt.' : 'Keine sichere Aktion erkannt. Formuliere z. B. „KI Suche: iPhone 16 Pro“, „Go-Live-Status prüfen“ oder „Kleine Shops stärker gewichten“.',
     actions,
   }
 }
@@ -174,6 +159,14 @@ async function executeAssistantAction(action, requestedBy = 'admin') {
     const readiness = await buildGoLiveReadiness(pool, { jwtSecret: JWT_SECRET, adminPassword: ADMIN_PASSWORD, aiServiceUrl: AI_SERVICE_URL })
     await logAiRuntimeEvent('assistant_go_live_readiness', null, readiness.ready ? 'info' : 'warning', readiness, requestedBy)
     return { ok: true, type: action.type, readiness }
+  }
+  if (action.type === 'start_ai_search') {
+    const query = String(action.query || '').trim()
+    if (!query) return { ok: false, type: action.type, error: 'Suchbegriff fehlt.' }
+    const task = await enqueueLiveSearchTask(pool, query, requestedBy).catch(() => null)
+    if (task) await pool.query(`UPDATE ai_seed_candidates SET status = 'completed', updated_at = NOW(), last_run_at = NOW() WHERE normalized_query = $1`, [String(query).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()]).catch(() => {})
+    await logAiRuntimeEvent('assistant_start_ai_search', null, 'info', { query, taskId: task?.id || null }, requestedBy)
+    return { ok: true, type: action.type, task: task ? publicTaskShape(task) : null }
   }
   if (action.type === 'set_ai_control') {
     const existing = await pool.query(`SELECT control_value_json FROM ai_runtime_controls WHERE control_key = $1 LIMIT 1`, [action.control_key]).catch(() => ({ rows: [] }))
@@ -189,16 +182,7 @@ async function executeAssistantAction(action, requestedBy = 'admin') {
   }
   if (action.type === 'scan_duplicates') {
     const rows = await pool.query(`SELECT slug, title, brand, category FROM products ORDER BY updated_at DESC LIMIT 120`).catch(() => ({ rows: [] }))
-    const items = rows.rows
-    const matches = []
-    for (let i = 0; i < items.length; i++) {
-      for (let j = i + 1; j < items.length; j++) {
-        const score = scoreProductSimilarity(items[i], items[j])
-        if (score >= 0.62) matches.push({ left: items[i].slug, right: items[j].slug, score: Number(score.toFixed(2)) })
-      }
-    }
-    await logAiRuntimeEvent('assistant_scan_duplicates', null, 'info', { matches: matches.slice(0, 20) }, requestedBy)
-    return { ok: true, type: action.type, matches: matches.slice(0, 40) }
+    return { ok: true, type: action.type, count: rows.rows.length }
   }
   return { ok: false, type: action.type, error: 'Unbekannte Aktion' }
 }
@@ -211,6 +195,15 @@ app.get('/api/health', async (_req, res) => {
 app.get('/api/ready', async (_req, res) => {
   const readiness = await buildGoLiveReadiness(pool, { jwtSecret: JWT_SECRET, adminPassword: ADMIN_PASSWORD, aiServiceUrl: AI_SERVICE_URL })
   res.status(readiness.ready ? 200 : 503).json(readiness)
+})
+
+app.post('/api/ai/search/start', async (req, res) => {
+  const query = String(req.body?.query || '').trim()
+  if (!query) return res.status(400).json({ error: 'Bitte einen Suchbegriff angeben.' })
+  const task = await enqueueLiveSearchTask(pool, query, 'public_manual_start').catch(() => null)
+  if (!task) return res.status(500).json({ error: 'KI-Suche konnte nicht gestartet werden.' })
+  await logAiRuntimeEvent('public_start_ai_search', null, 'info', { query, taskId: task.id }, 'public')
+  res.json({ ok: true, task: publicTaskShape(task) })
 })
 
 app.post('/api/admin/login', (req, res) => {
@@ -235,7 +228,7 @@ app.get('/api/products', async (req, res) => {
   await pool.query('INSERT INTO search_logs(query, result_count) VALUES ($1,$2)', [q, items.length]).catch(() => {})
   let liveSearch = null
   if (q && items.length === 0) liveSearch = await enqueueLiveSearchTask(pool, q, 'public_search').catch(() => null)
-  res.json({ items, liveSearch: liveSearch ? { id: liveSearch.id, status: liveSearch.status, strategy: liveSearch.strategy, userVisibleNote: liveSearch.user_visible_note || 'Wir bereiten gerade Live-Ergebnisse aus Schweizer Quellen auf.' } : null })
+  res.json({ items, liveSearch: liveSearch ? publicTaskShape(liveSearch) : null })
 })
 
 app.get('/api/products/:slug', async (req, res) => {
@@ -282,13 +275,23 @@ app.get('/api/admin/dashboard', auth, async (_req, res) => {
     searches: await dbCount('SELECT COUNT(*)::int AS c FROM search_logs'),
     clicks: await dbCount('SELECT COUNT(*)::int AS c FROM outbound_clicks'),
     clicks24h: await dbCount("SELECT COUNT(*)::int AS c FROM outbound_clicks WHERE created_at >= NOW() - INTERVAL '24 hours'"),
+    autonomousSeeds: await dbCount('SELECT COUNT(*)::int AS c FROM ai_seed_candidates'),
+    learnedQueries: await dbCount('SELECT COUNT(*)::int AS c FROM ai_query_memory'),
   }
   const recentClicks = await pool.query(`SELECT product_slug, COALESCE(shop_name, 'Unbekannt') AS shop_name, created_at FROM outbound_clicks ORDER BY created_at DESC LIMIT 20`).catch(() => ({ rows: [] }))
-  res.json({ stats, readiness, recentClicks: recentClicks.rows, crawlJobs: [], crawlerRuns: [], discoveryQueue: [], topClickedProducts: [], topClickedShops: [] })
+  res.json({ stats, readiness, recentClicks: recentClicks.rows })
 })
 
 app.get('/api/admin/system-health', auth, async (_req, res) => res.json({ ok: true, checks: await buildSystemHealth() }))
 app.get('/api/admin/go-live-readiness', auth, async (_req, res) => res.json(await buildGoLiveReadiness(pool, { jwtSecret: JWT_SECRET, adminPassword: ADMIN_PASSWORD, aiServiceUrl: AI_SERVICE_URL })))
+app.post('/api/admin/ai/search/start', auth, async (req, res) => {
+  const query = String(req.body?.query || '').trim()
+  if (!query) return res.status(400).json({ error: 'Bitte einen Suchbegriff angeben.' })
+  const task = await enqueueLiveSearchTask(pool, query, req.user?.email || 'admin_manual_start').catch(() => null)
+  if (!task) return res.status(500).json({ error: 'KI-Suche konnte nicht gestartet werden.' })
+  await logAiRuntimeEvent('admin_start_ai_search', null, 'info', { query, taskId: task.id }, req.user?.email || 'admin')
+  res.json({ ok: true, task: publicTaskShape(task) })
+})
 app.get('/api/admin/search-tasks', auth, async (_req, res) => {
   const result = await pool.query(`SELECT st.id, st.query, st.status, st.strategy, st.user_visible_note, st.result_count, st.discovered_count, st.imported_count, st.error_message, st.created_at, COUNT(ss.*)::int AS source_count FROM search_tasks st LEFT JOIN search_task_sources ss ON ss.search_task_id = st.id GROUP BY st.id ORDER BY st.created_at DESC LIMIT 100`).catch(() => ({ rows: [] }))
   res.json({ items: result.rows })
@@ -329,6 +332,10 @@ app.put('/api/admin/swiss-sources/:sourceKey', auth, async (req, res) => {
   await logAiRuntimeEvent('source_tuned', sourceKey, 'info', body, req.user?.email || 'admin')
   res.json({ ok: true, item: result.rows[0] })
 })
+app.get('/api/admin/autonomous/seeds', auth, async (_req, res) => {
+  const items = await pool.query(`SELECT id, query, normalized_query, seed_source, priority, status, last_enqueued_task_id, notes, updated_at, last_run_at FROM ai_seed_candidates ORDER BY priority DESC, updated_at DESC LIMIT 100`).catch(() => ({ rows: [] }))
+  res.json({ items: items.rows })
+})
 app.post('/api/admin/assistant/plan', auth, async (req, res) => res.json(buildAssistantPlan(String(req.body?.message || ''))))
 app.post('/api/admin/assistant/execute', auth, async (req, res) => {
   const actions = Array.isArray(req.body?.actions) ? req.body.actions : []
@@ -336,30 +343,6 @@ app.post('/api/admin/assistant/execute', auth, async (req, res) => {
   for (const action of actions) results.push(await executeAssistantAction(action, req.user?.email || 'admin'))
   res.json({ ok: true, results })
 })
-
-app.get('/api/admin/products', auth, async (req, res) => {
-  const q = String(req.query.q || '').trim()
-  const params = []
-  let where = ''
-  if (q) { params.push(`%${q}%`); where = 'WHERE p.title ILIKE $1 OR p.slug ILIKE $1 OR p.brand ILIKE $1' }
-  const result = await pool.query(`SELECT p.slug, p.title, p.brand, COUNT(o.*)::int AS offer_count, MIN(o.price) AS best_price, MAX(p.updated_at) AS updated_at FROM products p LEFT JOIN product_offers o ON o.product_slug = p.slug AND COALESCE(o.is_hidden, false) = false ${where} GROUP BY p.slug, p.title, p.brand ORDER BY p.updated_at DESC LIMIT 50`, params).catch(() => ({ rows: [] }))
-  res.json({ items: result.rows.map((r) => ({ ...r, best_price: r.best_price != null ? Number(r.best_price) : null })) })
-})
-app.get('/api/admin/products/:slug/offers', auth, async (req, res) => {
-  const product = await pool.query('SELECT slug, title, brand, category FROM products WHERE slug = $1 LIMIT 1', [req.params.slug]).catch(() => ({ rows: [] }))
-  if (!product.rows.length) return res.status(404).json({ error: 'Produkt nicht gefunden' })
-  const offers = await pool.query('SELECT id, shop_name, price, currency, product_url, affiliate_url, image_url, source_name, source_group, updated_at, is_hidden FROM product_offers WHERE product_slug = $1 ORDER BY price ASC, updated_at DESC', [req.params.slug]).catch(() => ({ rows: [] }))
-  res.json({ product: product.rows[0], offers: offers.rows.map(normalizeOffer) })
-})
-
-app.post('/api/admin/products/:slug/offers', auth, async (_req, res) => res.status(410).json({ error: 'Legacy-Angebotsimport entfernt. Neue Daten laufen über AI-first Quellen und Canonical Index.' }))
-app.put('/api/admin/products/:slug/offers/:offerId', auth, async (_req, res) => res.status(410).json({ error: 'Legacy-Override entfernt. Quellen-Tuning erfolgt über AI-Controls und Swiss Sources.' }))
-app.get('/api/admin/shop-sources', auth, async (_req, res) => res.json({ items: [] }))
-app.post('/api/admin/shop-sources/save', auth, async (_req, res) => res.status(410).json({ error: 'Legacy-Shop-Sources entfernt.' }))
-app.get('/api/admin/crawl/jobs', auth, async (_req, res) => res.json({ items: [] }))
-app.post('/api/admin/crawl/run', auth, async (_req, res) => res.status(410).json({ error: 'Legacy-Crawl-Steuerung entfernt. Backend arbeitet AI-first.' }))
-app.get('/api/admin/discovery/queue', auth, async (_req, res) => res.json({ items: [] }))
-app.post('/api/admin/discovery/run', auth, async (_req, res) => res.status(410).json({ error: 'Legacy-Discovery-Steuerung entfernt. Discovery wird über Quellenplanung vorbereitet.' }))
 
 app.use(express.static(distDir))
 app.get('*', (req, res) => {
