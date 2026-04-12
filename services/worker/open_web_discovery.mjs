@@ -1,4 +1,4 @@
-const EXCLUDED_DISCOVERY_HOSTS = ['toppreise.ch', 'duckduckgo.com', 'html.duckduckgo.com', 'lite.duckduckgo.com', 'google.com', 'bing.com', 'search.yahoo.com']
+const EXCLUDED_DISCOVERY_HOSTS = ['toppreise.ch', 'duckduckgo.com', 'html.duckduckgo.com', 'lite.duckduckgo.com', 'google.com', 'www.google.com', 'bing.com', 'search.yahoo.com']
 const SHOP_HINTS = [
   { host: 'brack.ch', brandHint: 'Brack' },
   { host: 'interdiscount.ch', brandHint: 'Interdiscount' },
@@ -164,6 +164,13 @@ function parseProductFromShopHints(html = '', pageUrl = '', host = '', { clean, 
   }
 }
 
+function normalizeResult(url, title, query, source) {
+  const host = hostnameFromUrl(url)
+  if (!url || !host || isExcludedDiscoveryHost(host) || !looksSwissDomain(host)) return null
+  if (!title || title.length < 8) return null
+  return { url, title, snippet: '', host, query, source }
+}
+
 function parseDuckDuckGoResults(html = '', query = '', source = 'duckduckgo_html') {
   const results = []
   const matches = [...String(html).matchAll(/<a[^>]+(?:class=["'][^"']*(?:result__a|result-link)[^"']*["'])?[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
@@ -172,10 +179,27 @@ function parseDuckDuckGoResults(html = '', query = '', source = 'duckduckgo_html
     const title = decodeHtml(match[2]).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
     const uddg = url.match(/[?&]uddg=([^&]+)/)
     if (uddg?.[1]) url = decodeURIComponent(uddg[1])
-    const host = hostnameFromUrl(url)
-    if (!url || !host || isExcludedDiscoveryHost(host) || !looksSwissDomain(host)) continue
-    if (!title || title.length < 8) continue
-    results.push({ url, title, snippet: '', host, query, source })
+    const item = normalizeResult(url, title, query, source)
+    if (item) results.push(item)
+  }
+  const unique = []
+  const seen = new Set()
+  for (const item of results) {
+    if (seen.has(item.url)) continue
+    seen.add(item.url)
+    unique.push(item)
+  }
+  return unique
+}
+
+function parseGoogleResults(html = '', query = '') {
+  const results = []
+  const urlMatches = [...String(html).matchAll(/href=["']\/url\?q=([^"'&]+)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)]
+  for (const match of urlMatches) {
+    const url = decodeURIComponent(match[1])
+    const title = decodeHtml(match[2]).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    const item = normalizeResult(url, title, query, 'google_html')
+    if (item) results.push(item)
   }
   const unique = []
   const seen = new Set()
@@ -253,6 +277,10 @@ async function collectEngineResults({ task, searchTimeout, searchTerms, fetchTex
       const htmlLite = await fetchText(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(term)}`, searchTimeout)
       allResults.push(...parseDuckDuckGoResults(htmlLite, task.query, 'duckduckgo_lite'))
     } catch {}
+    try {
+      const googleHtml = await fetchText(`https://www.google.com/search?hl=de&gl=ch&num=10&q=${encodeURIComponent(term)}`, searchTimeout)
+      allResults.push(...parseGoogleResults(googleHtml, task.query))
+    } catch {}
   }
   return allResults
 }
@@ -261,7 +289,7 @@ async function collectDirectShopResults({ task, plannerSources = [], searchTimeo
   const directResults = []
   const directSources = plannerSources
     .filter((source) => source?.search_url_template && looksSwissDomain(hostnameFromUrl(source.base_url || source.search_url_template)))
-    .slice(0, 10)
+    .slice(0, 12)
 
   for (const source of directSources) {
     try {
@@ -291,8 +319,8 @@ export async function runOpenWebDiscovery({
   const openWeb = controlMap.get('open_web_discovery')
   if (openWeb?.is_enabled === false) return { discovered: 0, imported: 0, sourceKeys: [] }
 
-  const resultLimit = Number(openWeb?.control_value_json?.result_limit || 18)
-  const productFetchLimit = Number(openWeb?.control_value_json?.product_fetch_limit || 12)
+  const resultLimit = Number(openWeb?.control_value_json?.result_limit || 22)
+  const productFetchLimit = Number(openWeb?.control_value_json?.product_fetch_limit || 14)
   const searchTimeout = Number(openWeb?.control_value_json?.search_timeout_ms || 25000)
   const intentTags = inferIntent(task.query || '')
   const searchTerms = [

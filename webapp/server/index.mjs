@@ -103,7 +103,7 @@ async function getAiControls() {
 }
 
 async function getSwissSourcesAdmin() {
-  const result = await pool.query(`SELECT source_key, display_name, provider_kind, source_kind, country_code, language_code, base_url, priority, confidence_score, refresh_interval_minutes, is_active, source_size, is_small_shop, discovery_weight, runtime_score, manual_boost, last_runtime_status, last_runtime_error, last_runtime_at, categories_json, notes, updated_at FROM swiss_sources ORDER BY priority DESC, confidence_score DESC, display_name ASC`).catch(() => ({ rows: [] }))
+  const result = await pool.query(`SELECT source_key, display_name, provider_kind, source_kind, country_code, language_code, base_url, priority, confidence_score, refresh_interval_minutes, is_active, source_size, is_small_shop, discovery_weight, runtime_score, manual_boost, last_runtime_status, last_runtime_error, last_runtime_at, categories_json, notes, auto_discovered, shop_domain, updated_at FROM swiss_sources ORDER BY priority DESC, confidence_score DESC, display_name ASC`).catch(() => ({ rows: [] }))
   return result.rows
 }
 
@@ -135,6 +135,8 @@ async function buildSystemHealth() {
   await add('ai_runtime_events', 'SELECT COUNT(*)::int AS c FROM ai_runtime_events')
   await add('ai_query_memory', 'SELECT COUNT(*)::int AS c FROM ai_query_memory')
   await add('ai_seed_candidates', 'SELECT COUNT(*)::int AS c FROM ai_seed_candidates')
+  await add('search_requests', 'SELECT COUNT(*)::int AS c FROM search_requests')
+  await add('web_discovery_results', 'SELECT COUNT(*)::int AS c FROM web_discovery_results')
   return checks
 }
 
@@ -144,14 +146,11 @@ function buildAssistantPlan(message = '') {
   const actions = []
   if (/(status|health|go live|launch|bereit|readiness)/.test(text)) actions.push({ type: 'go_live_readiness' })
   if (/(kleine shops|small shops).*(stärker|boosten|mehr)/.test(text)) actions.push({ type: 'set_ai_control', control_key: 'small_shop_balance', patch: { min_small_shops: 3, boost: 24 } })
+  if (/(open web|web discovery|offenes web|google)/.test(text)) actions.push({ type: 'set_ai_control', control_key: 'open_web_discovery', patch: { result_limit: 22, product_fetch_limit: 14 } })
   if (/(runtime|laufzeit).*(notiz|note|merken)/.test(text)) actions.push({ type: 'log_runtime_note', note: message })
-  if (/(duplikat|doppelt|merge)/.test(text)) actions.push({ type: 'scan_duplicates' })
   const searchMatch = text.match(/(?:ki suche|ai search|suche starten|search start)\s*:?\s*(.+)$/i)
   if (searchMatch?.[1]) actions.push({ type: 'start_ai_search', query: searchMatch[1].trim() })
-  return {
-    summary: actions.length ? 'Sichere AI-Backend-Aktionen erkannt.' : 'Keine sichere Aktion erkannt. Formuliere z. B. „KI Suche: iPhone 16 Pro“, „Go-Live-Status prüfen“ oder „Kleine Shops stärker gewichten“.',
-    actions,
-  }
+  return { summary: actions.length ? 'Sichere AI-Backend-Aktionen erkannt.' : 'Keine sichere Aktion erkannt.', actions }
 }
 
 async function executeAssistantAction(action, requestedBy = 'admin') {
@@ -164,7 +163,6 @@ async function executeAssistantAction(action, requestedBy = 'admin') {
     const query = String(action.query || '').trim()
     if (!query) return { ok: false, type: action.type, error: 'Suchbegriff fehlt.' }
     const task = await enqueueLiveSearchTask(pool, query, requestedBy).catch(() => null)
-    if (task) await pool.query(`UPDATE ai_seed_candidates SET status = 'completed', updated_at = NOW(), last_run_at = NOW() WHERE normalized_query = $1`, [String(query).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()]).catch(() => {})
     await logAiRuntimeEvent('assistant_start_ai_search', null, 'info', { query, taskId: task?.id || null }, requestedBy)
     return { ok: true, type: action.type, task: task ? publicTaskShape(task) : null }
   }
@@ -179,10 +177,6 @@ async function executeAssistantAction(action, requestedBy = 'admin') {
   if (action.type === 'log_runtime_note') {
     await logAiRuntimeEvent('assistant_runtime_note', null, 'info', { note: action.note || '' }, requestedBy)
     return { ok: true, type: action.type }
-  }
-  if (action.type === 'scan_duplicates') {
-    const rows = await pool.query(`SELECT slug, title, brand, category FROM products ORDER BY updated_at DESC LIMIT 120`).catch(() => ({ rows: [] }))
-    return { ok: true, type: action.type, count: rows.rows.length }
   }
   return { ok: false, type: action.type, error: 'Unbekannte Aktion' }
 }
@@ -242,13 +236,6 @@ app.get('/api/products/:slug', async (req, res) => {
   res.json({ ...product.rows[0], price: cheapest ? Number(cheapest.price) : product.rows[0].price, shop_name: cheapest?.shop_name || product.rows[0].shop_name, product_url: cheapest?.product_url || product.rows[0].product_url, redirect_url: cheapest?.redirect_url || withAffiliate(product.rows[0].product_url), offers: enrichedOffers })
 })
 
-app.post('/api/alerts', async (req, res) => {
-  const { email, productSlug, targetPrice } = req.body || {}
-  if (!email || !productSlug || !targetPrice) return res.status(400).json({ error: 'Bitte E-Mail, Produkt und Zielpreis angeben.' })
-  await pool.query('INSERT INTO alerts(email, product_slug, target_price) VALUES ($1,$2,$3)', [email, productSlug, targetPrice])
-  res.json({ ok: true })
-})
-
 app.get('/r/:slug/:shop?', async (req, res) => {
   const { slug, shop } = req.params
   const canonicalTarget = await resolveCanonicalRedirect(pool, slug, shop).catch(() => null)
@@ -272,18 +259,16 @@ app.get('/api/admin/dashboard', auth, async (_req, res) => {
   const stats = {
     products: await dbCount('SELECT COUNT(*)::int AS c FROM products'),
     offers: await dbCount('SELECT COUNT(*)::int AS c FROM product_offers'),
-    searches: await dbCount('SELECT COUNT(*)::int AS c FROM search_logs'),
-    clicks: await dbCount('SELECT COUNT(*)::int AS c FROM outbound_clicks'),
-    clicks24h: await dbCount("SELECT COUNT(*)::int AS c FROM outbound_clicks WHERE created_at >= NOW() - INTERVAL '24 hours'"),
+    searchTasks: await dbCount('SELECT COUNT(*)::int AS c FROM search_tasks'),
     autonomousSeeds: await dbCount('SELECT COUNT(*)::int AS c FROM ai_seed_candidates'),
     learnedQueries: await dbCount('SELECT COUNT(*)::int AS c FROM ai_query_memory'),
+    openWebPages: await dbCount('SELECT COUNT(*)::int AS c FROM web_discovery_results'),
+    searchRequests: await dbCount('SELECT COUNT(*)::int AS c FROM search_requests'),
   }
-  const recentClicks = await pool.query(`SELECT product_slug, COALESCE(shop_name, 'Unbekannt') AS shop_name, created_at FROM outbound_clicks ORDER BY created_at DESC LIMIT 20`).catch(() => ({ rows: [] }))
-  res.json({ stats, readiness, recentClicks: recentClicks.rows })
+  res.json({ stats, readiness })
 })
 
 app.get('/api/admin/system-health', auth, async (_req, res) => res.json({ ok: true, checks: await buildSystemHealth() }))
-app.get('/api/admin/go-live-readiness', auth, async (_req, res) => res.json(await buildGoLiveReadiness(pool, { jwtSecret: JWT_SECRET, adminPassword: ADMIN_PASSWORD, aiServiceUrl: AI_SERVICE_URL })))
 app.post('/api/admin/ai/search/start', auth, async (req, res) => {
   const query = String(req.body?.query || '').trim()
   if (!query) return res.status(400).json({ error: 'Bitte einen Suchbegriff angeben.' })
@@ -293,15 +278,23 @@ app.post('/api/admin/ai/search/start', auth, async (req, res) => {
   res.json({ ok: true, task: publicTaskShape(task) })
 })
 app.get('/api/admin/search-tasks', auth, async (_req, res) => {
-  const result = await pool.query(`SELECT st.id, st.query, st.status, st.strategy, st.user_visible_note, st.result_count, st.discovered_count, st.imported_count, st.error_message, st.created_at, COUNT(ss.*)::int AS source_count FROM search_tasks st LEFT JOIN search_task_sources ss ON ss.search_task_id = st.id GROUP BY st.id ORDER BY st.created_at DESC LIMIT 100`).catch(() => ({ rows: [] }))
+  const result = await pool.query(`SELECT st.id, st.query, st.status, st.strategy, st.user_visible_note, st.result_count, st.discovered_count, st.imported_count, st.error_message, st.created_at, COUNT(ss.*)::int AS source_count FROM search_tasks st LEFT JOIN search_task_sources ss ON ss.search_task_id = st.id GROUP BY st.id ORDER BY st.created_at DESC LIMIT 40`).catch(() => ({ rows: [] }))
   res.json({ items: result.rows })
+})
+app.get('/api/admin/search-requests', auth, async (_req, res) => {
+  const items = await pool.query(`SELECT id, query, email, status, eta_minutes, result_count, latest_task_id, updated_at, completed_at FROM search_requests ORDER BY updated_at DESC LIMIT 40`).catch(() => ({ rows: [] }))
+  res.json({ items: items.rows })
+})
+app.get('/api/admin/web-discovery-results', auth, async (_req, res) => {
+  const items = await pool.query(`SELECT id, query, source_domain, page_url, result_title, result_rank, discovered_shop, discovered_product, updated_at FROM web_discovery_results ORDER BY updated_at DESC LIMIT 40`).catch(() => ({ rows: [] }))
+  res.json({ items: items.rows })
 })
 app.get('/api/admin/canonical-products', auth, async (req, res) => {
   const q = String(req.query.q || '').trim()
   const params = []
   let where = ''
   if (q) { params.push(`%${q}%`); where = 'WHERE title ILIKE $1 OR brand ILIKE $1 OR category ILIKE $1' }
-  const result = await pool.query(`SELECT id, canonical_key, title, brand, category, image_url, best_price, best_price_currency, offer_count, source_count, popularity_score, freshness_priority, updated_at FROM canonical_products ${where} ORDER BY popularity_score DESC, updated_at DESC LIMIT 100`, params).catch(() => ({ rows: [] }))
+  const result = await pool.query(`SELECT id, canonical_key, title, brand, category, image_url, best_price, best_price_currency, offer_count, source_count, popularity_score, freshness_priority, deal_score, deal_label, updated_at FROM canonical_products ${where} ORDER BY popularity_score DESC, updated_at DESC LIMIT 40`, params).catch(() => ({ rows: [] }))
   res.json({ items: result.rows.map((r) => ({ ...r, best_price: r.best_price != null ? Number(r.best_price) : null })) })
 })
 app.get('/api/admin/ai/controls', auth, async (_req, res) => res.json({ items: await getAiControls() }))
@@ -314,7 +307,7 @@ app.put('/api/admin/ai/controls/:controlKey', auth, async (req, res) => {
   await logAiRuntimeEvent('control_updated', controlKey, 'info', { is_enabled: isEnabled, control_value_json: controlValueJson }, req.user?.email || 'admin')
   res.json({ ok: true, item: result.rows[0] })
 })
-app.get('/api/admin/ai/runtime-events', auth, async (_req, res) => res.json({ items: await getAiRuntimeEvents() }))
+app.get('/api/admin/ai/runtime-events', auth, async (_req, res) => res.json({ items: await getAiRuntimeEvents(20) }))
 app.post('/api/admin/ai/runtime-events', auth, async (req, res) => {
   const eventType = String(req.body?.event_type || 'manual_note').trim()
   const sourceKey = String(req.body?.source_key || '').trim() || null
@@ -327,13 +320,13 @@ app.get('/api/admin/swiss-sources', auth, async (_req, res) => res.json({ items:
 app.put('/api/admin/swiss-sources/:sourceKey', auth, async (req, res) => {
   const sourceKey = String(req.params.sourceKey || '').trim().toLowerCase()
   const body = req.body || {}
-  const result = await pool.query(`UPDATE swiss_sources SET priority = COALESCE($2, priority), confidence_score = COALESCE($3, confidence_score), refresh_interval_minutes = COALESCE($4, refresh_interval_minutes), is_active = COALESCE($5, is_active), source_size = COALESCE(NULLIF($6, ''), source_size), is_small_shop = COALESCE($7, is_small_shop), discovery_weight = COALESCE($8, discovery_weight), runtime_score = COALESCE($9, runtime_score), manual_boost = COALESCE($10, manual_boost), last_runtime_status = COALESCE(NULLIF($11, ''), last_runtime_status), last_runtime_error = $12, last_runtime_at = CASE WHEN $11 IS NOT NULL OR $12 IS NOT NULL THEN NOW() ELSE last_runtime_at END, updated_at = NOW() WHERE source_key = $1 RETURNING source_key, display_name, provider_kind, source_kind, country_code, language_code, base_url, priority, confidence_score, refresh_interval_minutes, is_active, source_size, is_small_shop, discovery_weight, runtime_score, manual_boost, last_runtime_status, last_runtime_error, last_runtime_at, categories_json, notes, updated_at`, [sourceKey, body.priority != null ? Number(body.priority) : null, body.confidence_score != null ? Number(body.confidence_score) : null, body.refresh_interval_minutes != null ? Number(body.refresh_interval_minutes) : null, typeof body.is_active === 'boolean' ? body.is_active : null, body.source_size ?? null, typeof body.is_small_shop === 'boolean' ? body.is_small_shop : null, body.discovery_weight != null ? Number(body.discovery_weight) : null, body.runtime_score != null ? Number(body.runtime_score) : null, body.manual_boost != null ? Number(body.manual_boost) : null, body.last_runtime_status ?? null, body.last_runtime_error ?? null]).catch(() => ({ rows: [] }))
+  const result = await pool.query(`UPDATE swiss_sources SET priority = COALESCE($2, priority), confidence_score = COALESCE($3, confidence_score), refresh_interval_minutes = COALESCE($4, refresh_interval_minutes), is_active = COALESCE($5, is_active), source_size = COALESCE(NULLIF($6, ''), source_size), is_small_shop = COALESCE($7, is_small_shop), discovery_weight = COALESCE($8, discovery_weight), runtime_score = COALESCE($9, runtime_score), manual_boost = COALESCE($10, manual_boost), last_runtime_status = COALESCE(NULLIF($11, ''), last_runtime_status), last_runtime_error = $12, last_runtime_at = CASE WHEN $11 IS NOT NULL OR $12 IS NOT NULL THEN NOW() ELSE last_runtime_at END, updated_at = NOW() WHERE source_key = $1 RETURNING source_key, display_name, provider_kind, source_kind, country_code, language_code, base_url, priority, confidence_score, refresh_interval_minutes, is_active, source_size, is_small_shop, discovery_weight, runtime_score, manual_boost, last_runtime_status, last_runtime_error, last_runtime_at, categories_json, notes, auto_discovered, shop_domain, updated_at`, [sourceKey, body.priority != null ? Number(body.priority) : null, body.confidence_score != null ? Number(body.confidence_score) : null, body.refresh_interval_minutes != null ? Number(body.refresh_interval_minutes) : null, typeof body.is_active === 'boolean' ? body.is_active : null, body.source_size ?? null, typeof body.is_small_shop === 'boolean' ? body.is_small_shop : null, body.discovery_weight != null ? Number(body.discovery_weight) : null, body.runtime_score != null ? Number(body.runtime_score) : null, body.manual_boost != null ? Number(body.manual_boost) : null, body.last_runtime_status ?? null, body.last_runtime_error ?? null]).catch(() => ({ rows: [] }))
   if (!result.rows.length) return res.status(404).json({ error: 'Schweizer Quelle nicht gefunden.' })
   await logAiRuntimeEvent('source_tuned', sourceKey, 'info', body, req.user?.email || 'admin')
   res.json({ ok: true, item: result.rows[0] })
 })
 app.get('/api/admin/autonomous/seeds', auth, async (_req, res) => {
-  const items = await pool.query(`SELECT id, query, normalized_query, seed_source, priority, status, last_enqueued_task_id, notes, updated_at, last_run_at FROM ai_seed_candidates ORDER BY priority DESC, updated_at DESC LIMIT 100`).catch(() => ({ rows: [] }))
+  const items = await pool.query(`SELECT id, query, normalized_query, seed_source, priority, status, last_enqueued_task_id, notes, updated_at, last_run_at FROM ai_seed_candidates ORDER BY priority DESC, updated_at DESC LIMIT 40`).catch(() => ({ rows: [] }))
   res.json({ items: items.rows })
 })
 app.post('/api/admin/assistant/plan', auth, async (req, res) => res.json(buildAssistantPlan(String(req.body?.message || ''))))
