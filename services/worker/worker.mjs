@@ -129,6 +129,14 @@ async function cycle() {
   }
 }
 
+async function logImportDiagnostic({ searchTaskId = null, searchTaskSourceId = null, stage, status = 'info', message = '', payload = {} }) {
+  await pool.query(
+    `INSERT INTO ai_import_diagnostics(search_task_id, search_task_source_id, stage, status, message, payload_json, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,NOW())`,
+    [searchTaskId, searchTaskSourceId, stage, status, message, JSON.stringify(payload || {})]
+  ).catch(() => {})
+}
+
 async function loadRuntimeControls() {
   const result = await pool.query(`SELECT control_key, is_enabled, control_value_json FROM ai_runtime_controls`).catch(() => ({ rows: [] }))
   const map = new Map()
@@ -273,6 +281,7 @@ async function createSearchTask(query, requestedBy = 'worker_autonomous', trigge
       [task.id, item.source.source_key, item.source.source_kind, buildSeedValue(item.source, query), item.source.id, item.reason, item.score]
     ).catch(() => {})
   }
+  await logImportDiagnostic({ searchTaskId: task.id, stage: 'task_created', status: 'success', message: 'Search task created', payload: { query } })
   return task
 }
 
@@ -519,20 +528,56 @@ async function insertWebDiscoveryResult(task, result, rank, extractedJson = {}, 
   ).catch(() => {})
 }
 
-async function storeSourceOffers(taskId, source, offers, pageUrl, discoverySourceKey = 'task_source') {
+async function storeSourceOffers(taskId, source, offers, pageUrl, discoverySourceKey = 'task_source', taskSourceId = null) {
+  if (!Array.isArray(offers) || !offers.length) {
+    await logImportDiagnostic({ searchTaskId: taskId, searchTaskSourceId: taskSourceId, stage: 'offer_batch', status: 'warning', message: 'No offers available to insert', payload: { provider: source.provider, pageUrl } })
+    return 0
+  }
+
   const sourcePageId = await ensureSourcePage(source.provider, pageUrl, source.source_kind, 'search_results', { query: source.seed_value, provider: source.provider })
+  if (!sourcePageId) {
+    await logImportDiagnostic({ searchTaskId: taskId, searchTaskSourceId: taskSourceId, stage: 'source_page', status: 'error', message: 'Source page could not be created', payload: { provider: source.provider, pageUrl } })
+    return 0
+  }
+
   let inserted = 0
+  let failed = 0
   const categories = inferIntent(source.seed_value || '')
+
   for (const offer of offers) {
     const targetUrl = offer.deeplink_url || offer.source_product_url || pageUrl
     await registerDiscoveredShop(targetUrl, categories, discoverySourceKey).catch(() => {})
-    await pool.query(
-      `INSERT INTO source_offers_v2(canonical_product_id, source_page_id, provider, provider_group, offer_title, brand, category, model_key, ean_gtin, mpn, price, currency, availability, condition_text, image_url, deeplink_url, source_product_url, confidence_score, extraction_method, extracted_json, is_active, first_seen_at, last_seen_at, created_at, updated_at)
-       VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,true,NOW(),NOW(),NOW(),NOW())`,
-      [sourcePageId, offer.provider, offer.provider_group, offer.offer_title, offer.brand, offer.category, offer.model_key, offer.ean_gtin, offer.mpn, offer.price, offer.currency, offer.availability, offer.condition_text, offer.image_url, offer.deeplink_url, offer.source_product_url, offer.confidence_score, offer.extraction_method, JSON.stringify({ ...offer.extracted_json, taskId })]
-    ).catch(() => {})
-    inserted += 1
+    try {
+      const result = await pool.query(
+        `INSERT INTO source_offers_v2(canonical_product_id, source_page_id, provider, provider_group, offer_title, brand, category, model_key, ean_gtin, mpn, price, currency, availability, condition_text, image_url, deeplink_url, source_product_url, confidence_score, extraction_method, extracted_json, is_active, first_seen_at, last_seen_at, created_at, updated_at)
+         VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,true,NOW(),NOW(),NOW(),NOW())
+         RETURNING id`,
+        [sourcePageId, offer.provider, offer.provider_group, offer.offer_title, offer.brand, offer.category, offer.model_key, offer.ean_gtin, offer.mpn, offer.price, offer.currency, offer.availability, offer.condition_text, offer.image_url, offer.deeplink_url, offer.source_product_url, offer.confidence_score, offer.extraction_method, JSON.stringify({ ...offer.extracted_json, taskId })]
+      )
+      if (result.rows[0]?.id) inserted += 1
+      else failed += 1
+    } catch (err) {
+      failed += 1
+      await logImportDiagnostic({
+        searchTaskId: taskId,
+        searchTaskSourceId: taskSourceId,
+        stage: 'offer_insert',
+        status: 'error',
+        message: String(err.message || err),
+        payload: { provider: source.provider, offer_title: offer.offer_title, pageUrl, price: offer.price, currency: offer.currency }
+      })
+    }
   }
+
+  await logImportDiagnostic({
+    searchTaskId: taskId,
+    searchTaskSourceId: taskSourceId,
+    stage: 'offer_batch',
+    status: failed > 0 ? 'warning' : 'success',
+    message: `Inserted ${inserted}/${offers.length} offers`,
+    payload: { provider: source.provider, pageUrl, inserted, failed }
+  })
+
   return inserted
 }
 
@@ -542,10 +587,20 @@ async function processTaskSource(task, source) {
     const url = `${TOPPREISE_BASE}${encodeURIComponent(task.query || source.seed_value)}`
     const html = await fetchText(url)
     const offers = parseToppreiseResults(html, task.query || source.seed_value, url)
-    const inserted = await storeSourceOffers(task.id, source, offers, url, 'toppreise_source')
-    await pool.query(`UPDATE search_task_sources SET status = 'success', discovered_count = $2, imported_count = $2, updated_at = NOW(), error_message = NULL WHERE id = $1`, [source.id, inserted]).catch(() => {})
-    return { discovered: inserted, imported: inserted, sourceKey: source.provider }
+    await logImportDiagnostic({ searchTaskId: task.id, searchTaskSourceId: source.id, stage: 'toppreise_parse', status: offers.length ? 'success' : 'warning', message: `Parsed ${offers.length} offers from Toppreise`, payload: { url, query: task.query || source.seed_value } })
+    if (!offers.length) {
+      await pool.query(`UPDATE search_task_sources SET status = 'failed', discovered_count = 0, imported_count = 0, updated_at = NOW(), error_message = 'Toppreise lieferte keine parsebaren Offers.' WHERE id = $1`, [source.id]).catch(() => {})
+      return { discovered: 0, imported: 0, sourceKey: source.provider }
+    }
+    const inserted = await storeSourceOffers(task.id, source, offers, url, 'toppreise_source', source.id)
+    if (inserted <= 0) {
+      await pool.query(`UPDATE search_task_sources SET status = 'failed', discovered_count = $2, imported_count = 0, updated_at = NOW(), error_message = 'Toppreise wurde gelesen, aber keine Offers konnten gespeichert werden.' WHERE id = $1`, [source.id, offers.length]).catch(() => {})
+      return { discovered: offers.length, imported: 0, sourceKey: source.provider }
+    }
+    await pool.query(`UPDATE search_task_sources SET status = 'success', discovered_count = $2, imported_count = $3, updated_at = NOW(), error_message = NULL WHERE id = $1`, [source.id, offers.length, inserted]).catch(() => {})
+    return { discovered: offers.length, imported: inserted, sourceKey: source.provider }
   }
+
   const urls = sourceDiscoveryUrls(swissSource, source.seed_value)
   let discovered = 0
   for (const url of urls) {
@@ -558,6 +613,7 @@ async function processTaskSource(task, source) {
     })
     if (sourcePageId) discovered += 1
   }
+  await logImportDiagnostic({ searchTaskId: task.id, searchTaskSourceId: source.id, stage: 'source_seed', status: discovered > 0 ? 'success' : 'warning', message: `Prepared ${discovered} source pages`, payload: { provider: source.provider, urls } })
   await pool.query(`UPDATE search_task_sources SET status = 'success', discovered_count = $2, imported_count = 0, updated_at = NOW(), error_message = NULL WHERE id = $1`, [source.id, discovered]).catch(() => {})
   return { discovered, imported: 0, sourceKey: swissSource?.source_key || source.provider }
 }
@@ -587,7 +643,7 @@ async function findCanonicalCandidate(offer) {
   return bestScore >= 0.78 ? best : null
 }
 
-async function ensureCanonicalFromOffers(limit = 250) {
+async function ensureCanonicalFromOffers(limit = 250, taskId = null) {
   const offers = await pool.query(`SELECT id, provider, offer_title, brand, category, model_key, image_url, price, currency FROM source_offers_v2 WHERE canonical_product_id IS NULL ORDER BY updated_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))
   let merged = 0
   for (const offer of offers.rows) {
@@ -609,6 +665,7 @@ async function ensureCanonicalFromOffers(limit = 250) {
     await pool.query(`INSERT INTO ai_merge_jobs(job_type, status, canonical_product_id, source_offer_id, input_json, output_json, confidence_score, requested_by, started_at, finished_at, created_at, updated_at) VALUES ('canonical_merge','success',$1,$2,$3,$4,0.76,'worker',NOW(),NOW(),NOW(),NOW())`, [canonicalId, offer.id, JSON.stringify({ offerId: offer.id }), JSON.stringify({ canonicalId, modelKey })]).catch(() => {})
     merged += 1
   }
+  await logImportDiagnostic({ searchTaskId: taskId, stage: 'canonical_merge', status: merged > 0 ? 'success' : 'warning', message: `Merged ${merged} offers into canonicals`, payload: { limit, merged } })
   return merged
 }
 
@@ -679,12 +736,13 @@ async function processSearchTask(task, controlMap) {
     canonicalModelKey,
     registerDiscoveredShop,
     insertWebDiscoveryResult,
-    storeSourceOffers,
+    storeSourceOffers: (taskId, source, offers, pageUrl, discoverySourceKey) => storeSourceOffers(taskId, source, offers, pageUrl, discoverySourceKey, null),
     fetchText,
   }).catch(() => ({ discovered: 0, imported: 0, sourceKeys: [] }))
   discovered += openWebResult.discovered
   imported += openWebResult.imported
   successfulSourceKeys.push(...openWebResult.sourceKeys)
+  await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_discovery', status: openWebResult.imported > 0 ? 'success' : 'warning', message: `Open web discovered ${openWebResult.discovered} and imported ${openWebResult.imported}`, payload: openWebResult })
 
   while (true) {
     const source = await claimTaskSource(task.id)
@@ -696,14 +754,16 @@ async function processSearchTask(task, controlMap) {
       if (result.sourceKey) successfulSourceKeys.push(result.sourceKey)
     } catch (err) {
       await pool.query(`UPDATE search_task_sources SET status = 'failed', updated_at = NOW(), error_message = $2 WHERE id = $1`, [source.id, String(err.message || err)]).catch(() => {})
+      await logImportDiagnostic({ searchTaskId: task.id, searchTaskSourceId: source.id, stage: 'task_source', status: 'error', message: String(err.message || err), payload: { provider: source.provider, source_kind: source.source_kind } })
     }
   }
 
-  const merged = await ensureCanonicalFromOffers(300)
+  const merged = await ensureCanonicalFromOffers(300, task.id)
   await refreshCanonicalPopularity()
   const finalImported = imported + merged
-  const status = (finalImported > 0 || discovered > 0) ? 'success' : 'failed'
-  await pool.query(`UPDATE search_tasks SET status = $2, finished_at = NOW(), updated_at = NOW(), discovered_count = COALESCE(discovered_count,0) + $3, imported_count = COALESCE(imported_count,0) + $4, result_count = COALESCE(result_count,0) + $4, error_message = CASE WHEN $2 = 'failed' THEN 'Keine verwertbaren Treffer aus den aktuellen Quellen gefunden.' ELSE NULL END WHERE id = $1`, [task.id, status, discovered, finalImported]).catch(() => {})
+  const status = finalImported > 0 ? 'success' : 'failed'
+  await pool.query(`UPDATE search_tasks SET status = $2, finished_at = NOW(), updated_at = NOW(), discovered_count = COALESCE(discovered_count,0) + $3, imported_count = COALESCE(imported_count,0) + $4, result_count = COALESCE(result_count,0) + $4, error_message = CASE WHEN $2 = 'failed' THEN 'Treffer wurden gefunden, aber es konnten keine stabilen Offers gespeichert oder gemerged werden.' ELSE NULL END WHERE id = $1`, [task.id, status, discovered, finalImported]).catch(() => {})
+  await logImportDiagnostic({ searchTaskId: task.id, stage: 'task_summary', status: status === 'success' ? 'success' : 'error', message: `Task finished with discovered=${discovered}, imported=${imported}, merged=${merged}`, payload: { discovered, imported, merged, finalImported, successfulSourceKeys: [...new Set(successfulSourceKeys)] } })
   await rememberQueryLearning(task, successfulSourceKeys, finalImported, status)
 }
 
@@ -715,6 +775,7 @@ async function tickAiSearch(controlMap) {
     await processSearchTask(task, controlMap)
   } catch (err) {
     await pool.query(`UPDATE search_tasks SET status = 'failed', finished_at = NOW(), updated_at = NOW(), error_message = $2 WHERE id = $1`, [task.id, String(err.message || err)]).catch(() => {})
+    await logImportDiagnostic({ searchTaskId: task.id, stage: 'task_fatal', status: 'error', message: String(err.message || err), payload: { query: task.query } })
   }
 }
 
