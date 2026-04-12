@@ -266,26 +266,45 @@ function buildOfferFromParsedProduct(parsed, url, host, query, { sanitizeSourceK
   }
 }
 
-async function collectEngineResults({ task, searchTimeout, searchTerms, fetchText }) {
+function errorMessage(err) {
+  return String(err?.message || err || 'Unknown error')
+}
+
+async function collectEngineResults({ task, searchTimeout, searchTerms, fetchText, logImportDiagnostic = null }) {
   const allResults = []
   for (const term of searchTerms) {
     try {
       const html = await fetchText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(term)}`, searchTimeout)
       allResults.push(...parseDuckDuckGoResults(html, task.query, 'duckduckgo_html'))
-    } catch {}
+    } catch (err) {
+      console.warn('[open_web_discovery] DuckDuckGo HTML search failed:', errorMessage(err))
+      if (typeof logImportDiagnostic === 'function') {
+        await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_search_engine', status: 'warning', message: 'DuckDuckGo HTML search failed', payload: { term, engine: 'duckduckgo_html', error: errorMessage(err) } })
+      }
+    }
     try {
       const htmlLite = await fetchText(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(term)}`, searchTimeout)
       allResults.push(...parseDuckDuckGoResults(htmlLite, task.query, 'duckduckgo_lite'))
-    } catch {}
+    } catch (err) {
+      console.warn('[open_web_discovery] DuckDuckGo Lite search failed:', errorMessage(err))
+      if (typeof logImportDiagnostic === 'function') {
+        await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_search_engine', status: 'warning', message: 'DuckDuckGo Lite search failed', payload: { term, engine: 'duckduckgo_lite', error: errorMessage(err) } })
+      }
+    }
     try {
       const googleHtml = await fetchText(`https://www.google.com/search?hl=de&gl=ch&num=10&q=${encodeURIComponent(term)}`, searchTimeout)
       allResults.push(...parseGoogleResults(googleHtml, task.query))
-    } catch {}
+    } catch (err) {
+      console.warn('[open_web_discovery] Google HTML search failed:', errorMessage(err))
+      if (typeof logImportDiagnostic === 'function') {
+        await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_search_engine', status: 'warning', message: 'Google HTML search failed', payload: { term, engine: 'google_html', error: errorMessage(err) } })
+      }
+    }
   }
   return allResults
 }
 
-async function collectDirectShopResults({ task, plannerSources = [], searchTimeout, fetchText }) {
+async function collectDirectShopResults({ task, plannerSources = [], searchTimeout, fetchText, logImportDiagnostic = null }) {
   const directResults = []
   const directSources = plannerSources
     .filter((source) => source?.search_url_template && looksSwissDomain(hostnameFromUrl(source.base_url || source.search_url_template)))
@@ -296,7 +315,12 @@ async function collectDirectShopResults({ task, plannerSources = [], searchTimeo
       const searchUrl = source.search_url_template.replace('{query}', encodeURIComponent(task.query || ''))
       const html = await fetchText(searchUrl, searchTimeout)
       directResults.push(...parseGenericAnchorResults(html, searchUrl, task.query, `direct_shop_search:${source.source_key}`))
-    } catch {}
+    } catch (err) {
+      console.warn('[open_web_discovery] Direct shop search failed:', errorMessage(err))
+      if (typeof logImportDiagnostic === 'function') {
+        await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_direct_shop', status: 'warning', message: 'Direct shop search failed', payload: { sourceKey: source.source_key, error: errorMessage(err) } })
+      }
+    }
   }
   return directResults
 }
@@ -315,6 +339,7 @@ export async function runOpenWebDiscovery({
   insertWebDiscoveryResult,
   storeSourceOffers,
   fetchText,
+  logImportDiagnostic = null,
 }) {
   const openWeb = controlMap.get('open_web_discovery')
   if (openWeb?.is_enabled === false) return { discovered: 0, imported: 0, sourceKeys: [] }
@@ -330,8 +355,8 @@ export async function runOpenWebDiscovery({
     `${task.query} schweiz kaufen`,
   ]
 
-  const engineResults = await collectEngineResults({ task, searchTimeout, searchTerms, fetchText })
-  const directShopResults = await collectDirectShopResults({ task, plannerSources, searchTimeout, fetchText })
+  const engineResults = await collectEngineResults({ task, searchTimeout, searchTerms, fetchText, logImportDiagnostic })
+  const directShopResults = await collectDirectShopResults({ task, plannerSources, searchTimeout, fetchText, logImportDiagnostic })
   const allResults = [...engineResults, ...directShopResults]
 
   const unique = []
@@ -346,6 +371,10 @@ export async function runOpenWebDiscovery({
   let discovered = 0
   let imported = 0
   const sourceKeys = []
+
+  if (!unique.length && typeof logImportDiagnostic === 'function') {
+    await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_discovery', status: 'warning', message: 'Open web discovery returned no candidate URLs', payload: { query: task.query, searchTerms } })
+  }
 
   for (let i = 0; i < unique.length; i++) {
     const item = unique[i]
@@ -362,12 +391,32 @@ export async function runOpenWebDiscovery({
         parseProductFromMeta(html, item.url, { clean, brandFromTitle, normalizePrice }) ||
         parseProductFromShopHints(html, item.url, item.host, { clean, brandFromTitle, normalizePrice })
       const offer = buildOfferFromParsedProduct(parsed, item.url, item.host, task.query, { sanitizeSourceKey, brandFromTitle, canonicalModelKey })
-      if (!offer) continue
-      await storeSourceOffers(task.id, { provider: sanitizeSourceKey(item.host) || item.host, source_kind: 'open_web_product', seed_value: task.query }, [offer], item.url, item.source.startsWith('direct_shop_search') ? 'direct_shop_search' : 'open_web_product')
-      await insertWebDiscoveryResult(task, item, 0, { parsed }, true, true)
-      imported += 1
-      if (item.host) sourceKeys.push(sanitizeSourceKey(item.host) || item.host)
-    } catch {}
+      if (!offer) {
+        if (typeof logImportDiagnostic === 'function') {
+          await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_product_parse', status: 'warning', message: 'Product page could not be parsed into an offer', payload: { url: item.url, host: item.host, source: item.source } })
+        }
+        continue
+      }
+      const inserted = await storeSourceOffers(
+        task.id,
+        { provider: sanitizeSourceKey(item.host) || item.host, source_kind: 'open_web_product', seed_value: task.query },
+        [offer],
+        item.url,
+        item.source.startsWith('direct_shop_search') ? 'direct_shop_search' : 'open_web_product'
+      )
+      if (inserted > 0) {
+        await insertWebDiscoveryResult(task, item, 0, { parsed, inserted }, true, true)
+        imported += inserted
+        if (item.host) sourceKeys.push(sanitizeSourceKey(item.host) || item.host)
+      } else if (typeof logImportDiagnostic === 'function') {
+        await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_product_store', status: 'warning', message: 'Parsed product page but offer storage returned 0 inserts', payload: { url: item.url, host: item.host, source: item.source, offerTitle: offer.offer_title } })
+      }
+    } catch (err) {
+      console.warn('[open_web_discovery] Product fetch failed:', errorMessage(err))
+      if (typeof logImportDiagnostic === 'function') {
+        await logImportDiagnostic({ searchTaskId: task.id, stage: 'open_web_product_fetch', status: 'error', message: 'Product page fetch or parse failed', payload: { url: item.url, host: item.host, source: item.source, error: errorMessage(err) } })
+      }
+    }
   }
 
   return { discovered, imported, sourceKeys: [...new Set(sourceKeys)] }
