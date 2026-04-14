@@ -54,19 +54,15 @@ function dedupeByUrl(items = []) {
 
 function extractImageCandidates(fragment = '', baseUrl = '') {
   const candidates = []
-
   const srcMatch = fragment.match(/<img[^>]+src=["']([^"']+)["']/i)
   if (srcMatch?.[1]) candidates.push(absolutizeUrl(baseUrl, decodeHtml(srcMatch[1])))
-
   const dataSrcMatch = fragment.match(/<img[^>]+data-src=["']([^"']+)["']/i)
   if (dataSrcMatch?.[1]) candidates.push(absolutizeUrl(baseUrl, decodeHtml(dataSrcMatch[1])))
-
   const srcSetMatch = fragment.match(/<img[^>]+srcset=["']([^"']+)["']/i)
   if (srcSetMatch?.[1]) {
     const first = srcSetMatch[1].split(',')[0]?.trim()?.split(/\s+/)?.[0]
     if (first) candidates.push(absolutizeUrl(baseUrl, decodeHtml(first)))
   }
-
   return candidates.filter(Boolean)
 }
 

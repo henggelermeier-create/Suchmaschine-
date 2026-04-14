@@ -1,0 +1,61 @@
+--- a/webapp/server/index.mjs
++++ b/webapp/server/index.mjs
+@@
+ app.get('/api/admin/ai/controls', auth, async (_req, res) => res.json({ items: await getAiControls() }))
+ app.get('/api/admin/swiss-sources', auth, async (_req, res) => res.json({ items: await getSwissSourcesAdmin() }))
++
++app.put('/api/admin/ai/controls/:key', auth, async (req, res) => {
++  const controlKey = String(req.params.key || '').trim()
++  if (!controlKey) return res.status(400).json({ error: 'Ungültiger Control Key.' })
++  const isEnabled = typeof req.body?.is_enabled === 'boolean' ? req.body.is_enabled : true
++  const controlValueJson = normalizeJsonInput(req.body?.control_value_json, {})
++  const description = String(req.body?.description || '').trim() || null
++  const result = await pool.query(
++    `UPDATE ai_runtime_controls
++     SET is_enabled = $2,
++         control_value_json = $3,
++         description = COALESCE($4, description),
++         updated_by = $5,
++         updated_at = NOW()
++     WHERE control_key = $1
++     RETURNING control_key, is_enabled, control_value_json, description, updated_by, updated_at`,
++    [controlKey, isEnabled, JSON.stringify(controlValueJson), description, req.user?.email || 'admin']
++  ).catch(() => ({ rows: [] }))
++  if (!result.rows.length) return res.status(404).json({ error: 'Control nicht gefunden.' })
++  await logAiRuntimeEvent('admin_update_ai_control', controlKey, 'info', { controlKey, isEnabled, controlValueJson }, req.user?.email || 'admin')
++  res.json({ ok: true, item: result.rows[0] })
++})
++
++app.put('/api/admin/swiss-sources/:sourceKey', auth, async (req, res) => {
++  const sourceKey = String(req.params.sourceKey || '').trim()
++  if (!sourceKey) return res.status(400).json({ error: 'Ungültiger Source Key.' })
++  const priority = Number(req.body?.priority ?? 0)
++  const manualBoost = Number(req.body?.manual_boost ?? 0)
++  const isActive = typeof req.body?.is_active === 'boolean' ? req.body.is_active : true
++  const notes = String(req.body?.notes || '').trim() || null
++  const result = await pool.query(
++    `UPDATE swiss_sources
++     SET priority = $2,
++         manual_boost = $3,
++         is_active = $4,
++         notes = COALESCE($5, notes),
++         updated_at = NOW()
++     WHERE source_key = $1
++     RETURNING source_key, display_name, priority, manual_boost, is_active, notes, updated_at`,
++    [sourceKey, priority, manualBoost, isActive, notes]
++  ).catch(() => ({ rows: [] }))
++  if (!result.rows.length) return res.status(404).json({ error: 'Quelle nicht gefunden.' })
++  await logAiRuntimeEvent('admin_update_swiss_source', sourceKey, 'info', { sourceKey, priority, manualBoost, isActive }, req.user?.email || 'admin')
++  res.json({ ok: true, item: result.rows[0] })
++})
++
++app.post('/api/admin/search-tasks/:id/retry', auth, async (req, res) => {
++  const taskId = Number(req.params.id)
++  if (!Number.isFinite(taskId)) return res.status(400).json({ error: 'Ungültige Task ID.' })
++  const original = await pool.query(`SELECT query FROM search_tasks WHERE id = $1 LIMIT 1`, [taskId]).catch(() => ({ rows: [] }))
++  if (!original.rows.length) return res.status(404).json({ error: 'Task nicht gefunden.' })
++  const task = await enqueueLiveSearchTask(pool, original.rows[0].query, req.user?.email || 'admin_retry').catch(() => null)
++  if (!task) return res.status(500).json({ error: 'Retry konnte nicht erstellt werden.' })
++  await logAiRuntimeEvent('admin_retry_task', null, 'info', { originalTaskId: taskId, newTaskId: task.id, query: task.query }, req.user?.email || 'admin')
++  res.json({ ok: true, task: publicTaskShape(task) })
++})
