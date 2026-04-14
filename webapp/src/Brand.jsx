@@ -11,7 +11,7 @@ export function BrandWordmark({ small = false, align = 'center', withTagline = t
           <span className="cross-h" />
         </span>
       </div>
-      {withTagline ? <div className="brand-tagline">Schweiz · AI Search</div> : null}
+      {withTagline ? <div className="brand-tagline">Schweiz · KI Suche</div> : null}
     </div>
   )
 }

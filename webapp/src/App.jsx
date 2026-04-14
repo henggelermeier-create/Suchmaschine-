@@ -89,7 +89,7 @@ function Header() {
 }
 
 function SearchCard({ item }) {
-  const label = item.decision?.label || item.deal_label || 'Live AI'
+  const label = item.decision?.label || item.deal_label || 'Live KI'
   const tone = toneFromLabel(label, item.offer_count || 0)
   const Icon = iconFromLabel(label, item.offer_count || 0)
   return (
@@ -118,7 +118,7 @@ function SuggestionPills({ items = [], title }) {
       <div className="section-head">
         <div>
           <h2>{title}</h2>
-          <p className="muted no-margin">Weitere Vorschläge aus dem AI Index.</p>
+          <p className="muted no-margin">Weitere Vorschläge aus dem KI Index.</p>
         </div>
       </div>
       <div className="pill-cloud">
@@ -198,7 +198,7 @@ function SearchPage({ route }) {
     <main className="page-shell search-shell-page">
       <section className="hero-panel compact-hero">
         <BrandWordmark small />
-        <h1 className="search-title">Suchergebnis UX mit AI-Vergleich</h1>
+        <h1 className="search-title">Suchergebnis UX mit KI-Vergleich</h1>
         <p className="hero-text">Der Hauptvergleich vorne. Ähnliche Produkte und weitere Vorschläge darunter.</p>
         <div className="search-inline-shell">
           <Search className="search-inline-icon" size={18} />
@@ -208,7 +208,7 @@ function SearchPage({ route }) {
         <div className="status-row top-margin-sm">
           <span className="status-chip tone-red"><Trophy size={14} /> Bestpreis</span>
           <span className="status-chip tone-slate"><Store size={14} /> Schweizer Shops</span>
-          <span className="status-chip tone-blue"><ScanSearch size={14} /> AI Match aktiv</span>
+          <span className="status-chip tone-blue"><ScanSearch size={14} /> KI Match aktiv</span>
         </div>
       </section>
 
@@ -371,7 +371,7 @@ function AdminPage() {
             <p className="hero-text">Gleiches Designsystem wie Frontend und Suche.</p>
           </div>
           <div className="admin-top-actions">
-            <button className="btn btn-primary btn-small" onClick={startAiSearch}>AI Suche starten</button>
+            <button className="btn btn-primary btn-small" onClick={startAiSearch}>KI Suche starten</button>
             <button className="btn btn-ghost btn-small" onClick={() => { persistAdminToken(''); setToken('') }}>Abmelden</button>
           </div>
         </div>
