@@ -1,3 +1,4 @@
+
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://ai_service:3010'
 
 function decodeHtml(str = '') {
@@ -11,7 +12,12 @@ function decodeHtml(str = '') {
 }
 
 function stripHtml(html = '') {
-  return decodeHtml(String(html || '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+  return decodeHtml(
+    String(html || '')
+      .replace(/<script[\r\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\r\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+  ).replace(/\s+/g, ' ').trim()
 }
 
 function normalizeSearchText(input = '') {
@@ -28,8 +34,20 @@ function queryTokens(query = '') {
   return normalizeSearchText(query).split(' ').filter(token => token.length >= 2)
 }
 
+function cleanCommerceQuery(query = '') {
+  const removeTokens = new Set([
+    'schweiz', 'schweizer', 'swiss', 'preisvergleich', 'bestpreis', 'preis', 'vergleich',
+    'angebote', 'angebot', 'deals', 'deal', 'kaufen', 'kauf', 'shop', 'shops', 'online',
+    'guenstig', 'gunstig', 'aktion', 'sale', 'ch',
+  ])
+  const tokens = normalizeSearchText(query).split(' ').filter(Boolean)
+  const filtered = tokens.filter(token => !removeTokens.has(token))
+  const cleaned = filtered.join(' ').trim()
+  return cleaned || normalizeSearchText(query)
+}
+
 function hostnameFromUrl(url = '') {
-  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, '') } catch { return '' }
+  try { return new URL(url).hostname.toLowerCase().replace(/^www./, '') } catch { return '' }
 }
 
 function absolutizeUrl(baseUrl = '', href = '') {
@@ -45,20 +63,19 @@ function looksLikeProductUrl(url = '') {
 }
 
 function looksLikeSearchUrl(url = '') {
-  return /([?&](q|query|search|suche|keyword|text)=)|\/search|\/suche|\/produktsuche|catalogsearch|searchtext|searchresult/i.test(String(url || ''))
+  return /([?&](q|query|search|suche|keyword|text)=)|\/search|\/suche|\/produktsuche|catalogsearch|searchtext|searchresult|listing\.xhtml/i.test(String(url || ''))
 }
 
 function normalizePrice(raw) {
   if (raw == null) return null
   const cleaned = String(raw)
     .replace(/CHF/gi, '')
-    .replace(/inkl\..*$/i, '')
+    .replace(/nk\..*$/i, '')
     .replace(/zzgl\..*$/i, '')
     .replace(/'/g, '')
-    .replace(/–/g, '')
-    .replace(/[^\d.,]/g, '')
+    .replace(/–/s, str) ..replace(/[^\d.,]/g, '')
     .replace(/\.(?=\d{3}(\D|$))/g, '')
-    .replace(',', '.')
+    .replace(/,/g, '.')
   const value = Number.parseFloat(cleaned)
   return Number.isFinite(value) ? value : null
 }
@@ -106,20 +123,39 @@ function extractOgImage(html = '', baseUrl = '') {
   return null
 }
 
+function countTokenHits(text = '', tokens = []) {
+  const normalized = normalizeSearchText(text)
+  return tokens.filter(token => normalized.includes(token)).length
+}
+
+function extractAnchorLabel(anchorAttrs = '', fragment = '') {
+  const ariaMatch = anchorAttrs.match(/aria-label=["']([^"']+)["']/i)
+  const titleAttrMatch = anchorAttrs.match(/title=["']([^"']+)["']/i)
+  const attrLabel = decodeHtml(ariaMatch?.[1] || titleAttrMatch?.[1] || '').trim()
+  const fragmentLabel = decodeHtml(fragment).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  return attrLabel || fragmentLabel
+}
+
 function parseShopCatalogCandidates(html = '', pageUrl = '', query = '', provider = '') {
   const baseHost = hostnameFromUrl(pageUrl)
   const items = []
-  const matches = [...String(html).matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+  const tokens = queryTokens(cleanCommerceQuery(query))
+  const matches = [...String(html).matchAll(/<a([^>]*)href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
 
   for (const match of matches) {
-    const url = absolutizeUrl(pageUrl, decodeHtml(match[1]))
+    const anchorAttrs = match[1] || ''
+    const url = absolutizeUrl(pageUrl, decodeHtml(match[2]))
     const host = hostnameFromUrl(url)
     if (!url || !host || host !== baseHost || !looksSwissDomain(host)) continue
     if (!looksLikeProductUrl(url)) continue
 
-    const fragment = match[2] || ''
-    const title = decodeHtml(fragment).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    const fragment = match[3] || ''
+    const title = extractAnchorLabel(anchorAttrs, fragment)
     if (!title || title.length < 8) continue
+
+    const titleHitCount = countTokenHits(title, tokens)
+    const urlHitCount = countTokenHits(url, tokens)
+    if (tokens.length && titleHitCount === 0 && urlHitCount === 0) continue
 
     const priceMatch = fragment.match(/CHF\s?[0-9'.,]{2,20}/i)
     const imageCandidates = extractImageCandidates(fragment, pageUrl)
@@ -132,11 +168,17 @@ function parseShopCatalogCandidates(html = '', pageUrl = '', query = '', provide
       host,
       query,
       image_url,
-      inline_price: normalizePrice(priceMatch?.[0] || null),
+      inline_price: normalizePrice(priceMatch?.[1] || null),
+      title_hit_count: titleHitCount,
+      url_hit_count: urlHitCount,
     })
   }
 
-  return dedupeByUrl(items)
+  return dedupeByUrl(items).sort((a, b) => {
+    const aScore = (a.title_hit_count * 3) + a.url_hit_count + (a.inline_price != null ? 1 : 0)
+    const bScore = (b.title_hit_count * 3) + b.url_hit_count + (b.inline_price != null ? 1 : 0)
+    return bScore - aScore
+  })
 }
 
 function parseSearchForms(html = '', baseUrl = '') {
@@ -207,6 +249,7 @@ function buildFallbackSearchCandidates(baseUrl = '', query = '') {
       `${origin}/de/suche?q=${encoded}`,
       `${origin}/de/suche?query=${encoded}`,
       `${origin}/de/searchtext/${encoded}`,
+      `${origin}/listing.xhtml?q=${encoded.replace(/%20/g, '+')}`,
     ]
     return dedupeCandidates(candidates.map(url => ({ url, reason: 'fallback_pattern', method: 'GET' })))
   } catch {
@@ -215,263 +258,4 @@ function buildFallbackSearchCandidates(baseUrl = '', query = '') {
 }
 
 function scoreSearchHtml(html = '', searchUrl = '', query = '') {
-  const text = normalizeSearchText(stripHtml(html))
-  const tokens = queryTokens(query)
-  const candidateCount = parseShopCatalogCandidates(html, searchUrl, query, '').length
-  const queryHits = tokens.filter(token => text.includes(token)).length
-  const priceHits = (String(html).match(/CHF\s?[0-9]/gi) || []).length
-  const titleLikeHits = (String(html).match(/<h[1-4][^>]*>/gi) || []).length
-  const emptySignals = /(keine treffer|0 treffer|no results|nichts gefunden|leider nichts gefunden)/i.test(html)
-  const homeSignals = /(newsletter|hero-banner|unsere angebote|beliebte kategorien)/i.test(html)
-  let score = 0
-  score += Math.min(24, queryHits * 6)
-  score += Math.min(40, candidateCount * 4)
-  score += Math.min(10, priceHits)
-  score += Math.min(6, titleLikeHits)
-  if (looksLikeSearchUrl(searchUrl)) score += 6
-  if (emptySignals) score -= 20
-  if (homeSignals && candidateCount < 2) score -= 8
-  return score
-}
-
-async function tryFetch(url, fetchText, timeoutMs = null) {
-  try {
-    const html = timeoutMs == null ? await fetchText(url) : await fetchText(url, timeoutMs)
-    return { ok: true, html }
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error || 'Unknown error') }
-  }
-}
-
-async function resolveShopSearchContext({ task, source, swissSource, fetchText, logImportDiagnostic = null }) {
-  const query = task.query || source.seed_value || ''
-  const homepageUrl = swissSource?.base_url || (source.seed_value && /^https?:\/\//i.test(source.seed_value) ? source.seed_value : null)
-  const candidates = []
-
-  if (swissSource?.search_url_template) {
-    candidates.push({
-      url: swissSource.search_url_template.replace('{query}', encodeURIComponent(query)),
-      reason: 'configured_template',
-      method: 'GET',
-    })
-  }
-
-  let homepageHtml = null
-  if (homepageUrl && /^https?:\/\//i.test(homepageUrl)) {
-    const homepageResult = await tryFetch(homepageUrl, fetchText)
-    if (homepageResult.ok) {
-      homepageHtml = homepageResult.html
-      for (const form of parseSearchForms(homepageHtml, homepageUrl)) {
-        const built = buildUrlFromForm(form, query)
-        if (!built) continue
-        candidates.push({
-          url: built,
-          reason: form.searchLike ? 'homepage_search_form' : 'homepage_form_guess',
-          method: form.method,
-        })
-      }
-      candidates.push(...buildFallbackSearchCandidates(homepageUrl, query))
-    } else if (typeof logImportDiagnostic === 'function') {
-      await logImportDiagnostic({
-        searchTaskId: task.id,
-        searchTaskSourceId: source.id,
-        stage: 'shop_catalog_homepage_fetch',
-        status: 'warning',
-        message: 'Could not load shop homepage for search-url discovery',
-        payload: { provider: source.provider, homepageUrl, error: homepageResult.error },
-      })
-    }
-  }
-
-  const uniqueCandidates = dedupeCandidates(candidates)
-  let best = null
-
-  for (const candidate of uniqueCandidates.slice(0, 18)) {
-    const fetched = await tryFetch(candidate.url, fetchText)
-    if (!fetched.ok) {
-      if (typeof logImportDiagnostic === 'function') {
-        await logImportDiagnostic({
-          searchTaskId: task.id,
-          searchTaskSourceId: source.id,
-          stage: 'shop_catalog_search_candidate',
-          status: 'warning',
-          message: 'Search candidate fetch failed',
-          payload: { provider: source.provider, candidateUrl: candidate.url, reason: candidate.reason, error: fetched.error },
-        })
-      }
-      continue
-    }
-
-    const score = scoreSearchHtml(fetched.html, candidate.url, query)
-    const item = { ...candidate, searchUrl: candidate.url, searchHtml: fetched.html, score }
-    if (!best || item.score > best.score) best = item
-  }
-
-  if (typeof logImportDiagnostic === 'function') {
-    await logImportDiagnostic({
-      searchTaskId: task.id,
-      searchTaskSourceId: source.id,
-      stage: 'shop_catalog_search_url_resolution',
-      status: best ? 'success' : 'warning',
-      message: best ? 'Resolved shop search URL dynamically' : 'Could not resolve a shop search URL',
-      payload: {
-        provider: source.provider,
-        query,
-        homepageUrl,
-        bestSearchUrl: best?.searchUrl || null,
-        bestScore: best?.score || 0,
-        candidateCount: uniqueCandidates.length,
-      },
-    })
-  }
-
-  return {
-    query,
-    homepageUrl,
-    homepageHtml,
-    searchUrl: best?.searchUrl || null,
-    searchHtml: best?.searchHtml || null,
-    searchScore: best?.score || 0,
-  }
-}
-
-async function callAiExtract({ html, url, query, source }) {
-  const res = await fetch(`${AI_SERVICE_URL}/extract`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ html, url, query, source }),
-  })
-  if (!res.ok) throw new Error(`AI extract HTTP ${res.status}`)
-  const data = await res.json()
-  return data?.extraction || null
-}
-
-export async function importFromShopCatalog({
-  task,
-  source,
-  swissSource,
-  fetchText,
-  storeSourceOffers,
-  canonicalModelKey,
-  brandFromTitle,
-  sanitizeSourceKey,
-  logImportDiagnostic = null,
-}) {
-  const resolved = await resolveShopSearchContext({ task, source, swissSource, fetchText, logImportDiagnostic })
-  const query = resolved.query
-  const searchUrl = resolved.searchUrl
-  const searchHtml = resolved.searchHtml
-
-  if (!searchUrl || !searchHtml) {
-    if (typeof logImportDiagnostic === 'function') {
-      await logImportDiagnostic({
-        searchTaskId: task.id,
-        searchTaskSourceId: source.id,
-        stage: 'shop_catalog_search_url',
-        status: 'warning',
-        message: 'No usable search URL for shop catalog source',
-        payload: { provider: source.provider, searchUrl, query, homepageUrl: resolved.homepageUrl },
-      })
-    }
-    return { discovered: 0, imported: 0, sourceKey: source.provider }
-  }
-
-  const inlineOgImage = extractOgImage(searchHtml, searchUrl)
-  const candidates = parseShopCatalogCandidates(searchHtml, searchUrl, query, source.provider)
-  const picked = candidates.slice(0, 12)
-
-  if (typeof logImportDiagnostic === 'function') {
-    await logImportDiagnostic({
-      searchTaskId: task.id,
-      searchTaskSourceId: source.id,
-      stage: 'shop_catalog_candidates',
-      status: picked.length ? 'success' : 'warning',
-      message: `Parsed ${picked.length} shop catalog candidates`,
-      payload: { provider: source.provider, query, searchUrl, searchScore: resolved.searchScore, candidates: picked.slice(0, 5) },
-    })
-  }
-
-  const offers = []
-  for (const candidate of picked) {
-    try {
-      const productHtml = await fetchText(candidate.url)
-      const extraction = await callAiExtract({
-        html: productHtml,
-        url: candidate.url,
-        query,
-        source: `shop_catalog:${source.provider}`,
-      })
-
-      if (!extraction?.title) continue
-
-      const brand = extraction.brand || brandFromTitle(extraction.title)
-      const model_key = extraction.model_key || canonicalModelKey({
-        brand,
-        title: extraction.title,
-        specs: [extraction.mpn, extraction.ean_gtin].filter(Boolean).join(' '),
-      })
-
-      const image_url =
-        extraction.image_url ||
-        candidate.image_url ||
-        extractOgImage(productHtml, candidate.url) ||
-        inlineOgImage ||
-        null
-
-      offers.push({
-        provider: sanitizeSourceKey(source.provider) || source.provider,
-        provider_group: 'shop_catalog',
-        offer_title: extraction.title,
-        brand,
-        category: extraction.category || null,
-        model_key,
-        ean_gtin: extraction.ean_gtin || null,
-        mpn: extraction.mpn || null,
-        price: extraction.price ?? candidate.inline_price ?? null,
-        currency: extraction.currency || 'CHF',
-        availability: extraction.availability || null,
-        condition_text: null,
-        image_url,
-        deeplink_url: extraction.deeplink_url || candidate.url,
-        source_product_url: extraction.source_product_url || candidate.url,
-        confidence_score: Number(extraction.confidence_score || 0.7),
-        extraction_method: extraction.extraction_method || 'shop_catalog_ai_extract',
-        extracted_json: {
-          query,
-          provider: source.provider,
-          search_url: searchUrl,
-          search_score: resolved.searchScore,
-          candidate_title: candidate.title,
-          candidate_image_url: candidate.image_url || null,
-          extraction,
-        },
-      })
-    } catch (err) {
-      if (typeof logImportDiagnostic === 'function') {
-        await logImportDiagnostic({
-          searchTaskId: task.id,
-          searchTaskSourceId: source.id,
-          stage: 'shop_catalog_product_fetch',
-          status: 'error',
-          message: String(err?.message || err),
-          payload: { provider: source.provider, url: candidate.url, query, searchUrl },
-        })
-      }
-    }
-  }
-
-  const imported = await storeSourceOffers(
-    task.id,
-    { ...source, provider: source.provider, source_kind: 'shop_catalog', seed_value: query },
-    offers,
-    searchUrl,
-    'shop_catalog_import',
-    source.id
-  )
-
-  return {
-    discovered: picked.length,
-    imported,
-    sourceKey: swissSource?.source_key || source.provider,
-  }
-}
+  const text = normalizeSearchText(stripH
