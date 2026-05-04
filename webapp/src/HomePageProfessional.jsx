@@ -51,7 +51,10 @@ function HomeResultCard({ item }) {
   )
 }
 
-export default function HomePageProfessional({ query, setQuery, loadingProducts, items, liveSearch, onSearch }) {
+export default function HomePageProfessional({ query, setQuery, activeQuery, loadingProducts, items, liveSearch, onSearch }) {
+  const sectionTitle = activeQuery ? 'Deine Ergebnisse' : 'Trending Deals'
+  const sectionHint = activeQuery ? `Resultate für „${activeQuery}“` : 'Kurz, klar, schnell.'
+
   return (
     <main className="page-shell home-shell home-youth-shell">
       <section className="home-hero-clean">
@@ -61,13 +64,14 @@ export default function HomePageProfessional({ query, setQuery, loadingProducts,
         </div>
 
         <h1>Such. Find. Spar.</h1>
-        <p>Schweizer Shops, echte Angebote, sofort aus dem Cache.</p>
+        <p>Schweizer Shops. Echte Angebote. Sofort sichtbar.</p>
 
         <SearchSuggestBox
           query={query}
           setQuery={setQuery}
           onSubmit={onSearch}
           placeholder="Was suchst du?"
+          inlineResults
         />
 
         <div className="home-quick-row">
@@ -89,20 +93,19 @@ export default function HomePageProfessional({ query, setQuery, loadingProducts,
         </section>
       ) : null}
 
-      <section className="home-products-section">
+      <section id="home-results" className="home-products-section">
         <div className="section-head home-section-head">
           <div>
-            <h2>Trending Deals</h2>
-            <p className="muted no-margin">Kurz, klar, schnell.</p>
+            <h2>{sectionTitle}</h2>
+            <p className="muted no-margin">{sectionHint}</p>
           </div>
-          <a className="suggest-pill" href="#/search?q=iPhone%2016%20Pro">Mehr entdecken</a>
         </div>
 
         {loadingProducts ? (
           <div className="skeleton-grid"><div /><div /><div /></div>
         ) : items.length ? (
           <div className="home-product-grid">
-            {items.slice(0, 6).map((item) => <HomeResultCard key={item.slug} item={item} />)}
+            {items.slice(0, activeQuery ? 24 : 6).map((item) => <HomeResultCard key={item.slug} item={item} />)}
           </div>
         ) : (
           <div className="empty-state"><h3>Noch leer</h3><p>Starte eine Suche. Die KI baut den Vergleich auf.</p></div>
