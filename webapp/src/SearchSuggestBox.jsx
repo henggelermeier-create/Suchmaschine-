@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Search, ArrowRight } from 'lucide-react'
+import { Search, ArrowRight, X } from 'lucide-react'
 
 const formatPrice = (value) => value != null ? `CHF ${Number(value).toFixed(2)}` : '—'
 
@@ -58,6 +58,12 @@ export default function SearchSuggestBox({ query, setQuery, onSubmit, placeholde
     onSubmit?.(query)
   }
 
+  function resetSearch() {
+    setQuery('')
+    setItems([])
+    setOpen(false)
+  }
+
   return (
     <div ref={rootRef} className="searchbox-root searchbox-root-front">
       <div className="searchbox-shell">
@@ -70,6 +76,7 @@ export default function SearchSuggestBox({ query, setQuery, onSubmit, placeholde
             onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
             placeholder={placeholder}
           />
+          {String(query || '').length ? <button type="button" className="search-clear-button" onClick={resetSearch}><X size={18} /></button> : null}
         </div>
         <button className="btn btn-primary" onClick={submit}>Suche starten</button>
       </div>
