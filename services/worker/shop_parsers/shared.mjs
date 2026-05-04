@@ -6,6 +6,9 @@ export function decodeHtml(str = '') {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/')
+    .replace(/\\u002F/g, '/')
+    .replace(/\\u0026/g, '&')
 }
 
 export function stripHtml(html = '') {
@@ -48,7 +51,10 @@ export function hostnameFromUrl(url = '') {
 }
 
 export function absolutizeUrl(baseUrl = '', href = '') {
-  try { return new URL(href, baseUrl).toString() } catch { return '' }
+  if (!href) return ''
+  const cleaned = decodeHtml(String(href || '')).trim()
+  if (!cleaned || /^data:/i.test(cleaned)) return ''
+  try { return new URL(cleaned, baseUrl).toString() } catch { return '' }
 }
 
 export function looksSwissDomain(hostname = '') {
@@ -110,24 +116,62 @@ export function dedupeCandidates(items = []) {
   return out
 }
 
+function pushImageCandidate(candidates, baseUrl, raw) {
+  const url = absolutizeUrl(baseUrl, raw)
+  if (!url) return
+  if (/\/logo\b|placeholder|transparent|spacer|blank\./i.test(url)) return
+  candidates.push(url)
+}
+
+function firstSrcsetUrl(srcset = '') {
+  const entries = String(srcset || '').split(',').map(part => part.trim()).filter(Boolean)
+  const parsed = entries.map((entry) => {
+    const [url, descriptor = ''] = entry.split(/\s+/)
+    const width = Number(String(descriptor).replace(/[^0-9.]/g, '')) || 0
+    return { url, width }
+  }).filter(item => item.url)
+  parsed.sort((a, b) => b.width - a.width)
+  return parsed[0]?.url || ''
+}
+
 export function extractImageCandidates(fragment = '', baseUrl = '') {
   const candidates = []
-  const srcMatch = fragment.match(/<img[^>]+src=["']([^"']+)["']/i)
-  if (srcMatch?.[1]) candidates.push(absolutizeUrl(baseUrl, decodeHtml(srcMatch[1])))
-  const dataSrcMatch = fragment.match(/<img[^>]+(?:data-src|data-image|data-original)=["']([^"']+)["']/i)
-  if (dataSrcMatch?.[1]) candidates.push(absolutizeUrl(baseUrl, decodeHtml(dataSrcMatch[1])))
-  const srcSetMatch = fragment.match(/<img[^>]+srcset=["']([^"']+)["']/i)
-  if (srcSetMatch?.[1]) {
-    const first = srcSetMatch[1].split(',')[0]?.trim()?.split(/\s+/)?.[0]
-    if (first) candidates.push(absolutizeUrl(baseUrl, decodeHtml(first)))
-  }
+  const html = String(fragment || '')
+
+  const attrPattern = /(?:src|data-src|data-image|data-original|data-lazy|data-url|content)=["']([^"']+)["']/gi
+  let attrMatch
+  while ((attrMatch = attrPattern.exec(html)) !== null) pushImageCandidate(candidates, baseUrl, attrMatch[1])
+
+  const srcSetPattern = /(?:srcset|data-srcset|data-sizes)=["']([^"']+)["']/gi
+  let srcSetMatch
+  while ((srcSetMatch = srcSetPattern.exec(html)) !== null) pushImageCandidate(candidates, baseUrl, firstSrcsetUrl(srcSetMatch[1]))
+
+  const sourcePattern = /<source[^>]+srcset=["']([^"']+)["'][^>]*>/gi
+  let sourceMatch
+  while ((sourceMatch = sourcePattern.exec(html)) !== null) pushImageCandidate(candidates, baseUrl, firstSrcsetUrl(sourceMatch[1]))
+
+  const jsonImagePattern = /["'](?:image|imageUrl|thumbnail|thumbnailUrl|picture|mainImage|productImage)["']\s*:\s*["']([^"']+)["']/gi
+  let jsonMatch
+  while ((jsonMatch = jsonImagePattern.exec(html)) !== null) pushImageCandidate(candidates, baseUrl, jsonMatch[1])
+
   return [...new Set(candidates.filter(Boolean))]
 }
 
 export function extractOgImage(html = '', baseUrl = '') {
-  const match = String(html).match(/<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']/i)
-  if (match?.[1]) return absolutizeUrl(baseUrl, decodeHtml(match[1]))
-  return null
+  const patterns = [
+    /<meta[^>]+(?:property|name)=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image(?::secure_url)?["']/i,
+    /<meta[^>]+(?:property|name)=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+    /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i,
+  ]
+  for (const pattern of patterns) {
+    const match = String(html || '').match(pattern)
+    if (match?.[1]) {
+      const imageUrl = absolutizeUrl(baseUrl, match[1])
+      if (imageUrl) return imageUrl
+    }
+  }
+  return extractImageCandidates(html, baseUrl)[0] || null
 }
 
 export function countTokenHits(text = '', tokens = []) {
@@ -138,7 +182,8 @@ export function countTokenHits(text = '', tokens = []) {
 export function extractAnchorLabel(anchorAttrs = '', fragment = '') {
   const ariaMatch = anchorAttrs.match(/aria-label=["']([^"']+)["']/i)
   const titleAttrMatch = anchorAttrs.match(/title=["']([^"']+)["']/i)
-  const attrLabel = decodeHtml(ariaMatch?.[1] || titleAttrMatch?.[1] || '').trim()
+  const altMatch = fragment.match(/<img[^>]+alt=["']([^"']+)["']/i)
+  const attrLabel = decodeHtml(ariaMatch?.[1] || titleAttrMatch?.[1] || altMatch?.[1] || '').trim()
   const fragmentLabel = decodeHtml(fragment).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   return attrLabel || fragmentLabel
 }
@@ -150,8 +195,8 @@ export function extractPriceText(text = '') {
 
 export function rankCandidates(items = []) {
   return dedupeByUrl(items).sort((a, b) => {
-    const aScore = (a.title_hit_count * 4) + (a.url_hit_count * 2) + (a.inline_price != null ? 2 : 0) + (a.image_url ? 1 : 0)
-    const bScore = (b.title_hit_count * 4) + (b.url_hit_count * 2) + (b.inline_price != null ? 2 : 0) + (b.image_url ? 1 : 0)
+    const aScore = (a.title_hit_count * 4) + (a.url_hit_count * 2) + (a.inline_price != null ? 2 : 0) + (a.image_url ? 3 : 0)
+    const bScore = (b.title_hit_count * 4) + (b.url_hit_count * 2) + (b.inline_price != null ? 2 : 0) + (b.image_url ? 3 : 0)
     return bScore - aScore
   })
 }
@@ -198,7 +243,7 @@ export function parseAnchorCandidates(html = '', pageUrl = '', query = '', provi
 export function collectContainerFragments(html = '') {
   const fragments = []
   const patterns = [
-    /<(article|li|div)[^>]+(?:data-testid|data-test|class)=["'][^"']*(product|item|tile|card|result|listing|offer)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi,
+    /<(article|li|div)[^>]+(?:data-testid|data-test|class)=["'][^"']*(product|item|tile|card|result|listing|offer|teaser)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi,
     /<(article|li|div)[^>]+(?:data-product|data-product-id|data-article-number|data-sku)=["'][^"']+["'][^>]*>([\s\S]*?)<\/\1>/gi,
   ]
   for (const pattern of patterns) {
@@ -251,7 +296,7 @@ export function parseContainerCandidates(html = '', pageUrl = '', query = '', pr
 }
 
 function tryParseJson(value) {
-  try { return JSON.parse(value) } catch { return null }
+  try { return JSON.parse(decodeHtml(value)) } catch { return null }
 }
 
 function collectObjects(value, out = []) {
@@ -264,6 +309,22 @@ function collectObjects(value, out = []) {
     for (const entry of Object.values(value)) collectObjects(entry, out)
   }
   return out
+}
+
+function imageFromJsonValue(value, pageUrl = '') {
+  if (!value) return ''
+  if (typeof value === 'string') return absolutizeUrl(pageUrl, value)
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const url = imageFromJsonValue(entry, pageUrl)
+      if (url) return url
+    }
+    return ''
+  }
+  if (typeof value === 'object') {
+    return absolutizeUrl(pageUrl, value.url || value.src || value.contentUrl || value.thumbnailUrl || '')
+  }
+  return ''
 }
 
 export function parseJsonProductCandidates(html = '', pageUrl = '', query = '', provider = '') {
@@ -288,8 +349,7 @@ export function parseJsonProductCandidates(html = '', pageUrl = '', query = '', 
       const urlHitCount = countTokenHits(url, tokens)
       if (tokens.length && titleHitCount === 0 && urlHitCount === 0) continue
 
-      const imageRaw = obj.image || obj.imageUrl || obj.thumbnail || obj.picture
-      const image_url = Array.isArray(imageRaw) ? absolutizeUrl(pageUrl, imageRaw[0] || '') : absolutizeUrl(pageUrl, imageRaw || '')
+      const image_url = imageFromJsonValue(obj.image || obj.imageUrl || obj.thumbnail || obj.thumbnailUrl || obj.picture || obj.mainImage || obj.productImage, pageUrl)
       const priceRaw = obj.price ?? obj.offers?.price ?? obj.offers?.lowPrice ?? obj.offer?.price ?? obj.regularPrice ?? obj.salePrice ?? null
       items.push({
         url,
@@ -360,6 +420,7 @@ export function buildFallbackSearchCandidates(baseUrl = '', query = '') {
     const base = new URL(baseUrl)
     const origin = `${base.protocol}//${base.host}`
     const encoded = encodeURIComponent(query)
+    const plusEncoded = encoded.replace(/%20/g, '+')
     const candidates = [
       `${origin}/search?q=${encoded}`,
       `${origin}/search?query=${encoded}`,
@@ -375,7 +436,9 @@ export function buildFallbackSearchCandidates(baseUrl = '', query = '') {
       `${origin}/de/suche?q=${encoded}`,
       `${origin}/de/suche?query=${encoded}`,
       `${origin}/de/searchtext/${encoded}`,
-      `${origin}/listing.xhtml?q=${encoded.replace(/%20/g, '+')}`,
+      `${origin}/de/searchtext/${plusEncoded}`,
+      `${origin}/listing.xhtml?q=${plusEncoded}`,
+      `${origin}/de/catalogsearch/result/?q=${encoded}`,
     ]
     return dedupeCandidates(candidates.map(url => ({ url, reason: 'fallback_pattern', method: 'GET' })))
   } catch {

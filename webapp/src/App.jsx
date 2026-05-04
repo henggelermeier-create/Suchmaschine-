@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { BrandWordmark } from './Brand.jsx'
-import { Search, Trophy, Store, Bot, ScanSearch, ArrowRight, Layers3, Sparkles, Settings2, Activity, Database, BarChart3, ShieldCheck } from 'lucide-react'
+import { Search, Trophy, Store, Bot, ScanSearch, ArrowRight, Layers3, Sparkles, Settings2, Activity, Database, BarChart3, Zap, ImageOff } from 'lucide-react'
 
 const ADMIN_TOKEN_KEY = 'kauvio_admin_token'
 
@@ -14,11 +14,7 @@ function parseSearchRoute(route) {
 }
 
 function readAdminToken() {
-  try {
-    return localStorage.getItem(ADMIN_TOKEN_KEY) || sessionStorage.getItem(ADMIN_TOKEN_KEY) || ''
-  } catch {
-    return ''
-  }
+  try { return localStorage.getItem(ADMIN_TOKEN_KEY) || sessionStorage.getItem(ADMIN_TOKEN_KEY) || '' } catch { return '' }
 }
 
 function persistAdminToken(token) {
@@ -35,10 +31,7 @@ function persistAdminToken(token) {
 
 async function api(url, options = {}) {
   const token = readAdminToken()
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  }
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   if (token && url.startsWith('/api/admin')) headers.Authorization = `Bearer ${token}`
   const res = await fetch(url, { ...options, headers })
   const data = await res.json().catch(() => ({}))
@@ -51,7 +44,7 @@ async function api(url, options = {}) {
 }
 
 function formatPrice(value) {
-  return value != null ? `CHF ${Number(value).toFixed(2)}` : '—'
+  return value != null ? `CHF ${Number(value).toFixed(2)}` : 'Preis folgt'
 }
 
 function formatDate(value) {
@@ -59,11 +52,15 @@ function formatDate(value) {
   try { return new Date(value).toLocaleString('de-CH') } catch { return String(value) }
 }
 
+function imageFor(item = {}) {
+  return item.image_url || item.imageUrl || item.thumbnail_url || item.thumbnailUrl || item.product_image_url || item.productImageUrl || null
+}
+
 function toneFromLabel(label = '', offerCount = 0) {
   const lower = String(label || '').toLowerCase()
-  if (lower.includes('top') || lower.includes('best')) return 'tone-red'
-  if (offerCount >= 3) return 'tone-slate'
-  return 'tone-blue'
+  if (lower.includes('top') || lower.includes('best')) return 'tone-hot'
+  if (offerCount >= 3) return 'tone-mint'
+  return 'tone-violet'
 }
 
 function iconFromLabel(label = '', offerCount = 0) {
@@ -71,6 +68,18 @@ function iconFromLabel(label = '', offerCount = 0) {
   if (lower.includes('top') || lower.includes('best')) return Trophy
   if (offerCount >= 3) return Store
   return Bot
+}
+
+function ProductImage({ item, compact = false }) {
+  const src = imageFor(item)
+  if (!src) {
+    return (
+      <div className={compact ? 'product-image-placeholder compact' : 'product-image-placeholder'}>
+        <ImageOff size={compact ? 18 : 28} />
+      </div>
+    )
+  }
+  return <img className={compact ? 'product-image compact' : 'product-image'} src={src} alt={item.title || item.offer_title || 'Produkt'} loading="lazy" />
 }
 
 function Header() {
@@ -81,7 +90,7 @@ function Header() {
       </a>
       <nav className="nav-pills">
         <a href="#/">Start</a>
-        <a href="#/search?q=iPhone%2016%20Pro">Suche</a>
+        <a href="#/search?q=iPhone%2016%20Pro">KI Suche</a>
         <a href="#/admin">Admin</a>
       </nav>
     </header>
@@ -89,23 +98,26 @@ function Header() {
 }
 
 function SearchCard({ item }) {
-  const label = item.decision?.label || item.deal_label || 'Live KI'
+  const label = item.decision?.label || item.deal_label || 'KI Match'
   const tone = toneFromLabel(label, item.offer_count || 0)
   const Icon = iconFromLabel(label, item.offer_count || 0)
   return (
-    <a className="result-card" href={`#/product/${item.slug}`}>
-      <div className="result-card-top">
-        <span className={`chip ${tone}`}><Icon size={14} /> {label}</span>
-        <span className="muted small">{item.offer_count || 0} Shops</span>
-      </div>
-      <div className="result-card-title">{item.title}</div>
-      <div className="result-card-meta">{item.brand || '—'} · {item.category || 'Produkt'} · {item.shop_name || 'KI Index'}</div>
-      <div className="result-card-bottom">
-        <div>
-          <strong className="price-inline">{formatPrice(item.price)}</strong>
-          <div className="muted small">Bester Preis aktuell</div>
+    <a className="result-card modern-result-card" href={`#/product/${item.slug}`}>
+      <div className="result-image-wrap"><ProductImage item={item} /></div>
+      <div className="result-card-body">
+        <div className="result-card-top">
+          <span className={`chip ${tone}`}><Icon size={14} /> {label}</span>
+          <span className="muted small">{item.offer_count || 0} Shops</span>
         </div>
-        <span className="arrow-circle"><ArrowRight size={16} /></span>
+        <div className="result-card-title">{item.title}</div>
+        <div className="result-card-meta">{item.brand || 'KI'} · {item.category || 'Produkt'} · {item.shop_name || 'Datenbank Cache'}</div>
+        <div className="result-card-bottom">
+          <div>
+            <strong className="price-inline">{formatPrice(item.price)}</strong>
+            <div className="muted small">Schnell aus DB geladen · KI prüft nach</div>
+          </div>
+          <span className="arrow-circle"><ArrowRight size={16} /></span>
+        </div>
       </div>
     </a>
   )
@@ -114,11 +126,11 @@ function SearchCard({ item }) {
 function SuggestionPills({ items = [], title }) {
   if (!items.length) return null
   return (
-    <section className="card-panel">
+    <section className="card-panel glass-panel">
       <div className="section-head">
         <div>
           <h2>{title}</h2>
-          <p className="muted no-margin">Weitere Vorschläge aus dem KI Index.</p>
+          <p className="muted no-margin">KI-Vorschläge aus dem gespeicherten Produktindex.</p>
         </div>
       </div>
       <div className="pill-cloud">
@@ -143,9 +155,7 @@ function SearchPage({ route }) {
   const [error, setError] = useState('')
   const pollRef = useRef(null)
 
-  useEffect(() => {
-    setQuery(initialQuery)
-  }, [initialQuery])
+  useEffect(() => { setQuery(initialQuery) }, [initialQuery])
 
   useEffect(() => {
     const cleaned = String(initialQuery || '').trim()
@@ -182,10 +192,8 @@ function SearchPage({ route }) {
           pollRef.current = null
         }
       } catch {}
-    }, 8000)
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
-    }
+    }, 6000)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [liveSearch?.query, results.length])
 
   function runSearch(nextQuery) {
@@ -195,86 +203,85 @@ function SearchPage({ route }) {
   }
 
   return (
-    <main className="page-shell search-shell-page">
-      <section className="hero-panel compact-hero">
+    <main className="page-shell search-shell-page youth-page">
+      <section className="hero-panel compact-hero youth-hero">
+        <span className="chip tone-mint"><Zap size={14} /> KI steuert Suche · DB Cache zuerst</span>
         <BrandWordmark small />
-        <h1 className="search-title">Suchergebnis UX mit KI-Vergleich</h1>
-        <p className="hero-text">Der Hauptvergleich vorne. Ähnliche Produkte und weitere Vorschläge darunter.</p>
-        <div className="search-inline-shell">
+        <h1 className="search-title">Finde Preise schneller. Die KI sortiert für dich.</h1>
+        <p className="hero-text">Ergebnisse werden aus der Datenbank sofort angezeigt. Die KI erweitert danach automatisch Shops, Bilder und Angebote.</p>
+        <div className="search-inline-shell youth-search">
           <Search className="search-inline-icon" size={18} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runSearch(query) }} placeholder="Produkt suchen" />
-          <button className="btn btn-primary" onClick={() => runSearch(query)}>Suchen</button>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runSearch(query) }} placeholder="iPhone, Sneaker, Laptop, Kopfhörer ..." />
+          <button className="btn btn-primary" onClick={() => runSearch(query)}>Go</button>
         </div>
         <div className="status-row top-margin-sm">
-          <span className="status-chip tone-red"><Trophy size={14} /> Bestpreis</span>
-          <span className="status-chip tone-slate"><Store size={14} /> Schweizer Shops</span>
-          <span className="status-chip tone-blue"><ScanSearch size={14} /> KI Match aktiv</span>
+          <span className="status-chip tone-hot"><Trophy size={14} /> Bestpreis</span>
+          <span className="status-chip tone-mint"><Database size={14} /> Schnell aus DB</span>
+          <span className="status-chip tone-violet"><ScanSearch size={14} /> KI crawlt weiter</span>
         </div>
       </section>
 
-      {liveSearch ? <section className="info-panel tone-panel-blue"><p className="no-margin">{liveSearch.userVisibleNote || 'Live-Suche läuft im Hintergrund.'}</p></section> : null}
+      {liveSearch ? <section className="info-panel tone-panel-violet"><p className="no-margin">{liveSearch.userVisibleNote || 'KI sucht weiter und speichert neue Treffer automatisch zwischen.'}</p></section> : null}
       {error ? <section className="info-panel tone-panel-red"><p className="no-margin">{error}</p></section> : null}
 
       <section className="results-section">
         <div className="section-head">
           <div>
-            <h2>Vergleich</h2>
-            <p className="muted no-margin">Aktuelle Haupttreffer für deine Suche.</p>
+            <h2>KI Vergleich</h2>
+            <p className="muted no-margin">{results.length ? `${results.length} gespeicherte Treffer sofort geladen.` : 'Noch keine gespeicherten Treffer für diese Suche.'}</p>
           </div>
         </div>
         {loading ? (
-          <div className="empty-state"><h3>Suche läuft</h3><p>Die KI bereitet Resultate vor.</p></div>
+          <div className="skeleton-grid"><div /><div /><div /></div>
         ) : results.length ? (
           <div className="results-grid search-results-grid">
             {results.map((item) => <SearchCard key={item.slug} item={item} />)}
           </div>
         ) : (
-          <div className="empty-state"><h3>Noch keine Resultate</h3><p>Starte die Suche und die KI baut den Vergleich automatisch auf.</p></div>
+          <div className="empty-state"><h3>KI baut den Vergleich auf</h3><p>Neue Shops und Bilder werden gecrawlt und für die nächsten Aufrufe gespeichert.</p></div>
         )}
       </section>
 
       <SuggestionPills items={similarItems} title="Ähnliche Produkte" />
-      <SuggestionPills items={suggestions} title="Weitere Vorschläge" />
+      <SuggestionPills items={suggestions} title="Weitere KI Vorschläge" />
     </main>
   )
 }
 
 function ProductPage({ slug }) {
   const [product, setProduct] = useState(null)
-  useEffect(() => {
-    api(`/api/products/${slug}`).then(setProduct).catch(() => setProduct(null))
-  }, [slug])
+  useEffect(() => { api(`/api/products/${slug}`).then(setProduct).catch(() => setProduct(null)) }, [slug])
 
-  if (!product) {
-    return <main className="page-shell"><section className="empty-state"><h3>Produkt wird geladen</h3></section></main>
-  }
+  if (!product) return <main className="page-shell"><section className="empty-state"><h3>Produkt wird geladen</h3></section></main>
 
   return (
-    <main className="page-shell product-page-shell">
-      <section className="hero-panel compact-hero">
-        <span className={`chip ${toneFromLabel(product.decision?.label || product.deal_label, product.offer_count || 0)}`}>
-          <Bot size={14} /> {product.decision?.label || product.deal_label || 'KI Vergleich'}
-        </span>
-        <h1 className="product-title">{product.title}</h1>
-        <p className="hero-text">{product.ai_summary || 'KI aufbereiteter Produktvergleich für die Schweiz.'}</p>
-        <div className="status-row top-margin-sm">
-          <span className="status-chip tone-red"><Trophy size={14} /> {formatPrice(product.price)}</span>
-          <span className="status-chip tone-slate"><Store size={14} /> {product.shop_name || 'KI Index'}</span>
-          <span className="status-chip tone-blue"><Bot size={14} /> {product.offer_count || 0} Angebote</span>
+    <main className="page-shell product-page-shell youth-page">
+      <section className="hero-panel product-hero-modern">
+        <div className="product-hero-copy">
+          <span className={`chip ${toneFromLabel(product.decision?.label || product.deal_label, product.offer_count || 0)}`}><Bot size={14} /> {product.decision?.label || product.deal_label || 'KI Vergleich'}</span>
+          <h1 className="product-title">{product.title}</h1>
+          <p className="hero-text">{product.ai_summary || 'KI aufbereiteter Produktvergleich für die Schweiz.'}</p>
+          <div className="status-row top-margin-sm">
+            <span className="status-chip tone-hot"><Trophy size={14} /> {formatPrice(product.price)}</span>
+            <span className="status-chip tone-mint"><Store size={14} /> {product.shop_name || 'KI Index'}</span>
+            <span className="status-chip tone-violet"><Bot size={14} /> {product.offer_count || 0} Angebote</span>
+          </div>
         </div>
+        <div className="product-hero-image"><ProductImage item={product} /></div>
       </section>
 
-      <section className="card-panel">
+      <section className="card-panel glass-panel">
         <div className="section-head">
           <div>
             <h2>Preisvergleich</h2>
-            <p className="muted no-margin">Alle aktiven Shops im gleichen Designsystem wie Startseite und Admin.</p>
+            <p className="muted no-margin">Angebote werden gespeichert, damit die Seite beim nächsten Aufruf schneller lädt.</p>
           </div>
         </div>
         <div className="offer-list">
           {(product.offers || []).map((offer, index) => (
-            <div className="offer-row" key={`${offer.shop_name}-${index}`}>
-              <div>
+            <div className="offer-row modern-offer-row" key={`${offer.shop_name}-${index}`}>
+              <ProductImage item={offer} compact />
+              <div className="offer-main">
                 <div className="offer-shop">{offer.shop_name}</div>
                 <div className="muted small">Zuletzt aktualisiert: {formatDate(offer.updated_at)}</div>
               </div>
@@ -322,9 +329,7 @@ function AdminPage() {
       persistAdminToken(data.token)
       setToken(data.token)
       setMessage('Admin eingeloggt.')
-    } catch (err) {
-      setMessage(err.message || 'Login fehlgeschlagen')
-    }
+    } catch (err) { setMessage(err.message || 'Login fehlgeschlagen') }
   }
 
   async function startAiSearch() {
@@ -332,15 +337,13 @@ function AdminPage() {
     try {
       const data = await api('/api/admin/ai/search/start', { method: 'POST', body: JSON.stringify({ query: aiQuery }) })
       setMessage(`KI Suche gestartet: ${data.task?.query || aiQuery}`)
-    } catch (err) {
-      setMessage(err.message || 'KI Suche konnte nicht gestartet werden.')
-    }
+    } catch (err) { setMessage(err.message || 'KI Suche konnte nicht gestartet werden.') }
   }
 
   if (!token) {
     return (
-      <main className="page-shell admin-shell">
-        <section className="hero-panel compact-hero admin-login-panel">
+      <main className="page-shell admin-shell youth-page">
+        <section className="hero-panel compact-hero youth-hero admin-login-panel">
           <BrandWordmark />
           <h1 className="search-title">Admin Login</h1>
           <form className="admin-login-form" onSubmit={loginAdmin}>
@@ -355,65 +358,49 @@ function AdminPage() {
   }
 
   const stats = [
-    { label: 'Live Jobs', value: systemHealth?.checks?.search_tasks?.count ?? 0, icon: Activity, tone: 'tone-blue' },
-    { label: 'Canonical Produkte', value: systemHealth?.checks?.canonical_products?.count ?? 0, icon: Database, tone: 'tone-slate' },
-    { label: 'Open Web', value: dashboard?.stats?.openWebPages ?? 0, icon: Search, tone: 'tone-blue' },
-    { label: 'Seeds', value: dashboard?.stats?.autonomousSeeds ?? 0, icon: Sparkles, tone: 'tone-red' },
+    { label: 'Live Jobs', value: systemHealth?.checks?.search_tasks?.count ?? 0, icon: Activity, tone: 'tone-violet' },
+    { label: 'DB Produkte', value: systemHealth?.checks?.canonical_products?.count ?? 0, icon: Database, tone: 'tone-mint' },
+    { label: 'Open Web', value: dashboard?.stats?.openWebPages ?? 0, icon: Search, tone: 'tone-violet' },
+    { label: 'KI Seeds', value: dashboard?.stats?.autonomousSeeds ?? 0, icon: Sparkles, tone: 'tone-hot' },
   ]
 
   return (
-    <main className="page-shell admin-shell">
-      <section className="hero-panel compact-hero admin-top-panel">
+    <main className="page-shell admin-shell youth-page">
+      <section className="hero-panel compact-hero youth-hero admin-top-panel">
         <div className="section-head admin-top-head">
           <div>
-            <span className="chip tone-red"><Settings2 size={14} /> Admin · Go Live</span>
+            <span className="chip tone-hot"><Settings2 size={14} /> Admin · KI Steuerung</span>
             <div className="top-margin-sm"><BrandWordmark small align="left" /></div>
-            <p className="hero-text">Gleiches Designsystem wie Frontend und Suche.</p>
+            <p className="hero-text">KI steuert Suche, Import, Bilder und gespeicherte schnelle Ergebnisse.</p>
           </div>
           <div className="admin-top-actions">
             <button className="btn btn-primary btn-small" onClick={startAiSearch}>KI Suche starten</button>
             <button className="btn btn-ghost btn-small" onClick={() => { persistAdminToken(''); setToken('') }}>Abmelden</button>
           </div>
         </div>
-        <div className="search-inline-shell admin-inline-search">
+        <div className="search-inline-shell youth-search admin-inline-search">
           <Search className="search-inline-icon" size={18} />
           <input value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} placeholder="z. B. iPhone 16 Pro 256 GB" />
           <button className="btn btn-primary" onClick={startAiSearch}>Starten</button>
         </div>
       </section>
 
-      {message ? <section className="info-panel tone-panel-blue"><p className="no-margin">{message}</p></section> : null}
+      {message ? <section className="info-panel tone-panel-violet"><p className="no-margin">{message}</p></section> : null}
 
       <section className="stats-grid-brand">
         {stats.map((item) => {
           const Icon = item.icon
-          return (
-            <div className="stat-card-brand" key={item.label}>
-              <div className="stat-top"><span className={`chip ${item.tone}`}><Icon size={14} /> {item.label}</span></div>
-              <div className="stat-value">{item.value}</div>
-            </div>
-          )
+          return <div className="stat-card-brand glass-panel" key={item.label}><div className="stat-top"><span className={`chip ${item.tone}`}><Icon size={14} /> {item.label}</span></div><div className="stat-value">{item.value}</div></div>
         })}
       </section>
 
-      <section className="card-panel">
-        <div className="section-head">
-          <div>
-            <h2>Letzte Suchjobs</h2>
-            <p className="muted no-margin">Discovery, Extraktion und Vergleich in einer Linie.</p>
-          </div>
-        </div>
+      <section className="card-panel glass-panel">
+        <div className="section-head"><div><h2>Letzte KI Jobs</h2><p className="muted no-margin">Discovery, Extraktion und DB-Speicherung in einer Linie.</p></div></div>
         <div className="offer-list">
           {searchTasks.slice(0, 8).map((task) => (
             <div className="offer-row" key={task.id}>
-              <div>
-                <div className="offer-shop">{task.query}</div>
-                <div className="muted small">{task.status} · {task.strategy}</div>
-              </div>
-              <div className="offer-row-right">
-                <span className="chip tone-blue"><BarChart3 size={14} /> {task.imported_count || 0} Imports</span>
-                <span className="chip tone-slate"><Layers3 size={14} /> {task.discovered_count || 0} Discovery</span>
-              </div>
+              <div><div className="offer-shop">{task.query}</div><div className="muted small">{task.status} · {task.strategy}</div></div>
+              <div className="offer-row-right"><span className="chip tone-violet"><BarChart3 size={14} /> {task.imported_count || 0} Imports</span><span className="chip tone-mint"><Layers3 size={14} /> {task.discovered_count || 0} Discovery</span></div>
             </div>
           ))}
         </div>
@@ -424,21 +411,9 @@ function AdminPage() {
 
 export default function App() {
   const [route, setRoute] = useState(routeNow())
-
-  useEffect(() => {
-    const onHash = () => setRoute(routeNow())
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
-  }, [])
-
-  if (route.startsWith('/product/')) {
-    return <div className="shell"><Header /><ProductPage slug={route.replace('/product/', '')} /></div>
-  }
-  if (route.startsWith('/search')) {
-    return <div className="shell"><Header /><SearchPage route={route} /></div>
-  }
-  if (route.startsWith('/admin')) {
-    return <div className="shell"><Header /><AdminPage /></div>
-  }
+  useEffect(() => { const onHash = () => setRoute(routeNow()); window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash) }, [])
+  if (route.startsWith('/product/')) return <div className="shell"><Header /><ProductPage slug={route.replace('/product/', '')} /></div>
+  if (route.startsWith('/search')) return <div className="shell"><Header /><SearchPage route={route} /></div>
+  if (route.startsWith('/admin')) return <div className="shell"><Header /><AdminPage /></div>
   return <div className="shell"><Header /></div>
 }
