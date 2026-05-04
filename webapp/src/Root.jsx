@@ -7,16 +7,19 @@ function routeNow() {
   return window.location.hash.replace(/^#/, '') || '/'
 }
 
-async function fetchHomeItems() {
-  const res = await fetch('/api/products?limit=6')
+async function fetchProducts(query = '') {
+  const q = String(query || '').trim()
+  const url = q ? `/api/products?q=${encodeURIComponent(q)}&limit=24` : '/api/products?limit=6'
+  const res = await fetch(url)
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || 'Produkte konnten nicht geladen werden.')
-  return { items: data.items || [], liveSearch: data.liveSearch || null }
+  return { items: data.items || [], liveSearch: data.liveSearch || null, query: q }
 }
 
 export default function Root() {
   const [route, setRoute] = useState(routeNow())
   const [query, setQuery] = useState('')
+  const [activeQuery, setActiveQuery] = useState('')
   const [items, setItems] = useState([])
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [liveSearch, setLiveSearch] = useState(null)
@@ -30,10 +33,11 @@ export default function Root() {
   useEffect(() => {
     if (route !== '/') return
     setLoadingProducts(true)
-    fetchHomeItems()
+    fetchProducts('')
       .then(({ items, liveSearch }) => {
         setItems(items)
         setLiveSearch(liveSearch)
+        setActiveQuery('')
       })
       .catch(() => {
         setItems([])
@@ -42,10 +46,23 @@ export default function Root() {
       .finally(() => setLoadingProducts(false))
   }, [route])
 
-  function runSearch(nextQuery) {
+  async function runSearch(nextQuery) {
     const cleaned = String(nextQuery || '').trim()
     if (!cleaned) return
-    window.location.hash = `/search?q=${encodeURIComponent(cleaned)}`
+    setQuery(cleaned)
+    setActiveQuery(cleaned)
+    setLoadingProducts(true)
+    try {
+      const data = await fetchProducts(cleaned)
+      setItems(data.items)
+      setLiveSearch(data.liveSearch)
+      setTimeout(() => document.getElementById('home-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+    } catch {
+      setItems([])
+      setLiveSearch(null)
+    } finally {
+      setLoadingProducts(false)
+    }
   }
 
   if (route !== '/') return <App />
@@ -55,6 +72,7 @@ export default function Root() {
       <HomePageProfessional
         query={query}
         setQuery={setQuery}
+        activeQuery={activeQuery}
         loadingProducts={loadingProducts}
         items={items}
         liveSearch={liveSearch}
