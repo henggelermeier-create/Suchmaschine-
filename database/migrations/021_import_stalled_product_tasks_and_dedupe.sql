@@ -19,11 +19,12 @@ WHERE st.id = r.id
   AND r.rn > 1;
 
 -- If the task query already contains a complete product title and price, store it as a product.
+-- Price parsing is deliberately defensive: extract one CHF-like token, strip thousands
+-- separators, normalize comma decimals, and only cast strings that are numeric.
 WITH product_like_tasks AS (
   SELECT st.id,
          st.query,
          COALESCE(st.normalized_query, lower(regexp_replace(st.query, '[^a-zA-Z0-9]+', ' ', 'g'))) AS canonical_key,
-         NULLIF(substring(st.query FROM '(?:CHF|Fr\.?|SFr\.?)\s*([0-9][0-9''’.,]*)'), '') AS raw_price,
          COALESCE((SELECT sts.provider FROM search_task_sources sts WHERE sts.search_task_id = st.id ORDER BY sts.imported_count DESC, sts.created_at ASC LIMIT 1), 'ki_live') AS provider,
          COALESCE((SELECT sts.seed_value FROM search_task_sources sts WHERE sts.search_task_id = st.id AND sts.seed_value LIKE 'http%' ORDER BY sts.created_at ASC LIMIT 1), 'https://kauvio.ch') AS product_url
   FROM search_tasks st
@@ -31,6 +32,11 @@ WITH product_like_tasks AS (
     AND st.created_at >= NOW() - INTERVAL '72 hours'
     AND st.query ~* '(CHF|Fr\.?|SFr\.?)\s*[0-9]'
     AND length(st.query) >= 20
+), price_tokens AS (
+  SELECT plt.*,
+         substring(plt.query FROM '(?:CHF|Fr\.?|SFr\.?)\s*([0-9][0-9''’.,]{0,14})') AS price_after_currency,
+         substring(plt.query FROM '([0-9][0-9''’.,]{0,14})\s*(?:CHF|Fr\.?|SFr\.?)') AS price_before_currency
+  FROM product_like_tasks plt
 ), normalized_products AS (
   SELECT id,
          query,
@@ -38,10 +44,24 @@ WITH product_like_tasks AS (
          provider,
          product_url,
          CASE
-           WHEN raw_price IS NULL THEN NULL
-           ELSE replace(replace(replace(raw_price, '''', ''), '’', ''), ',', '.')::numeric
+           WHEN cleaned_price ~ '^[0-9]+(\.[0-9]{1,2})?$' THEN cleaned_price::numeric
+           ELSE NULL
          END AS price
-  FROM product_like_tasks
+  FROM (
+    SELECT id,
+           query,
+           canonical_key,
+           provider,
+           product_url,
+           replace(
+             regexp_replace(
+               regexp_replace(COALESCE(price_after_currency, price_before_currency, ''), '[''’]', '', 'g'),
+               '\.(?=[0-9]{3}(\D|$))', '', 'g'
+             ),
+             ',', '.'
+           ) AS cleaned_price
+    FROM price_tokens
+  ) cleaned
 ), inserted_products AS (
   INSERT INTO canonical_products(canonical_key, title, brand, category, model_key, ai_summary, popularity_score, freshness_priority, confidence_score, source_count, offer_count, best_price, best_price_currency, last_seen_at, updated_at)
   SELECT canonical_key,
@@ -137,14 +157,14 @@ WHERE control_key = 'autonomous_builder';
 
 INSERT INTO ai_runtime_events(event_type, severity, event_payload_json, created_by, created_at)
 VALUES (
-  'hotfix_import_stalled_product_tasks_and_dedupe',
+  'hotfix_import_stalled_product_tasks_and_dedupe_safe_price',
   'warning',
   jsonb_build_object(
     'canonical_products', (SELECT COUNT(*) FROM canonical_products),
     'source_offers', (SELECT COUNT(*) FROM source_offers_v2),
     'active_pending_tasks', (SELECT COUNT(*) FROM search_tasks WHERE status IN ('pending','running'))
   ),
-  'hotfix_stalled_products_dedupe',
+  'hotfix_safe_price_cast_021',
   NOW()
 );
 
