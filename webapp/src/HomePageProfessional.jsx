@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { BrandWordmark } from './Brand.jsx'
 import SearchSuggestBox from './SearchSuggestBox.jsx'
-import { Bot, Trophy, Store, ArrowRight, Zap, ImageOff, Database, Cpu, Camera, X } from 'lucide-react'
+import { Bot, Trophy, Store, ArrowRight, Zap, ImageOff, Database, Camera, X, ChevronLeft } from 'lucide-react'
 
 const formatPrice = (value) => value != null ? `CHF ${Number(value).toFixed(2)}` : 'Preis folgt'
 
@@ -13,6 +13,14 @@ function specsFor(item = {}) {
   const specs = item.specs_json || item.specs || {}
   if (Array.isArray(specs)) return specs.slice(0, 8).map((value, index) => [`Info ${index + 1}`, value])
   return Object.entries(specs).filter(([, value]) => value != null && String(value).trim()).slice(0, 8)
+}
+
+async function fetchProductDetail(slug) {
+  if (!slug) return null
+  const res = await fetch(`/api/products/${slug}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Produkt konnte nicht geladen werden.')
+  return data
 }
 
 function MiniProductImage({ item }) {
@@ -34,33 +42,56 @@ function InlineProductGallery({ item }) {
   )
 }
 
-function InlineProductDetails({ item, onClose }) {
+function ProductOfferList({ product }) {
+  const offers = Array.isArray(product.offers) ? product.offers.slice(0, 6) : []
+  if (!offers.length) return null
+  return (
+    <div className="detail-offers">
+      <h4>Beste Angebote</h4>
+      {offers.map((offer, index) => (
+        <a key={`${offer.id || offer.shop_name}-${index}`} className="detail-offer-row" href={offer.redirect_url || offer.product_url || '#'} target="_blank" rel="noreferrer">
+          <span>{offer.shop_name || offer.provider || 'Shop'}</span>
+          <b>{formatPrice(offer.price)}</b>
+          <ArrowRight size={15} />
+        </a>
+      ))}
+    </div>
+  )
+}
+
+function FocusedProductDetails({ item, onBack, loading }) {
   const specEntries = specsFor(item)
   return (
-    <div className="inline-product-details">
-      <button className="inline-close" onClick={onClose}><X size={16} /></button>
-      <InlineProductGallery item={item} />
-      <div className="inline-detail-copy">
-        <span className="chip tone-violet"><Camera size={14} /> Produktdetails</span>
-        <h3>{item.title}</h3>
-        <p>{item.ai_summary || 'KI sammelt Preise, Bilder und technische Daten aus Schweizer Shops.'}</p>
-        <div className="inline-detail-stats">
-          <span>{formatPrice(item.price)}</span>
-          <span>{item.offer_count || 0} Shops</span>
-          <span>{item.brand || 'Produkt'}</span>
-        </div>
-        <div className="spec-grid">
-          {specEntries.length ? specEntries.map(([key, value]) => <div key={key}><b>{key}</b><span>{String(value)}</span></div>) : (
-            <>
-              <div><b>Quelle</b><span>{item.shop_name || 'KI Index'}</span></div>
-              <div><b>Kategorie</b><span>{item.category || 'Produkt'}</span></div>
-              <div><b>Vergleich</b><span>{item.offer_count || 0} Angebote</span></div>
-            </>
-          )}
-        </div>
-        <a className="btn btn-primary btn-small" href={`#/product/${item.slug}`}>Vollansicht öffnen</a>
+    <section className="focused-product-view">
+      <div className="focused-topbar">
+        <button className="back-button" onClick={onBack}><ChevronLeft size={18} /> Zurück</button>
+        <button className="inline-close" onClick={onBack}><X size={16} /></button>
       </div>
-    </div>
+      {loading ? <div className="focused-loading">Produktdetails werden geladen…</div> : null}
+      <div className="focused-product-grid">
+        <InlineProductGallery item={item} />
+        <div className="focused-detail-copy">
+          <span className="chip tone-violet"><Camera size={14} /> Produktdetails</span>
+          <h2>{item.title}</h2>
+          <p>{item.ai_summary || 'KI sammelt Preise, Bilder und technische Daten aus Schweizer Shops.'}</p>
+          <div className="focused-price-row">
+            <strong>{formatPrice(item.price)}</strong>
+            <span>{item.offer_count || item.offers?.length || 0} Shops</span>
+            <span>{item.brand || 'Produkt'}</span>
+          </div>
+          <div className="spec-grid">
+            {specEntries.length ? specEntries.map(([key, value]) => <div key={key}><b>{key}</b><span>{String(value)}</span></div>) : (
+              <>
+                <div><b>Quelle</b><span>{item.shop_name || 'KI Index'}</span></div>
+                <div><b>Kategorie</b><span>{item.category || 'Produkt'}</span></div>
+                <div><b>Vergleich</b><span>{item.offer_count || 0} Angebote</span></div>
+              </>
+            )}
+          </div>
+          <ProductOfferList product={item} />
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -82,9 +113,31 @@ function HomeResultCard({ item, active, onSelect }) {
 
 export default function HomePageProfessional({ query, setQuery, activeQuery, loadingProducts, items, liveSearch, onSearch }) {
   const [selected, setSelected] = useState(null)
-  useEffect(() => { setSelected(null) }, [activeQuery])
+  const [detail, setDetail] = useState(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  useEffect(() => { setSelected(null); setDetail(null) }, [activeQuery])
   const sectionTitle = activeQuery ? 'Deine Ergebnisse' : 'Trending Deals'
   const sectionHint = activeQuery ? `Resultate für „${activeQuery}“` : 'Kurz, klar, schnell.'
+
+  async function openProduct(item) {
+    setSelected(item)
+    setDetail(item)
+    setLoadingDetail(true)
+    setTimeout(() => document.getElementById('home-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40)
+    try {
+      const full = await fetchProductDetail(item.slug)
+      setDetail({ ...item, ...full })
+    } catch {
+      setDetail(item)
+    } finally {
+      setLoadingDetail(false)
+    }
+  }
+
+  function closeProduct() {
+    setSelected(null)
+    setDetail(null)
+  }
 
   return (
     <main className="page-shell home-shell home-youth-shell">
@@ -100,11 +153,16 @@ export default function HomePageProfessional({ query, setQuery, activeQuery, loa
       {liveSearch ? <section className="home-live-strip"><Bot size={16} /> KI sucht weiter und speichert neue Treffer.</section> : null}
 
       <section id="home-results" className="home-products-section">
-        <div className="section-head home-section-head"><div><h2>{sectionTitle}</h2><p className="muted no-margin">{sectionHint}</p></div></div>
-        {loadingProducts ? <div className="skeleton-grid"><div /><div /><div /></div> : items.length ? <>
-          <div className="home-product-grid">{items.slice(0, activeQuery ? 24 : 6).map((item) => <HomeResultCard key={item.slug} item={item} active={selected?.slug === item.slug} onSelect={setSelected} />)}</div>
-          {selected ? <InlineProductDetails item={selected} onClose={() => setSelected(null)} /> : null}
-        </> : <div className="empty-state"><h3>Noch leer</h3><p>Die KI liest gerade Schweizer Shopdaten ein.</p></div>}
+        {selected && detail ? (
+          <FocusedProductDetails item={detail} onBack={closeProduct} loading={loadingDetail} />
+        ) : (
+          <>
+            <div className="section-head home-section-head"><div><h2>{sectionTitle}</h2><p className="muted no-margin">{sectionHint}</p></div></div>
+            {loadingProducts ? <div className="skeleton-grid"><div /><div /><div /></div> : items.length ? (
+              <div className="home-product-grid">{items.slice(0, activeQuery ? 24 : 6).map((item) => <HomeResultCard key={item.slug} item={item} active={selected?.slug === item.slug} onSelect={openProduct} />)}</div>
+            ) : <div className="empty-state"><h3>Noch leer</h3><p>Die KI liest gerade Schweizer Shopdaten ein.</p></div>}
+          </>
+        )}
       </section>
     </main>
   )
