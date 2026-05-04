@@ -90,32 +90,41 @@ export async function fetchCanonicalSearchResults(pool, query = '', limit = 60) 
 }
 
 export async function fetchHomeComparisons(pool, limit = 6) {
+  const poolSize = Math.max(Number(limit || 6) * 8, 36)
   const result = await pool.query(`
-    SELECT
-      cp.id,
-      cp.title,
-      cp.brand,
-      cp.category,
-      cp.ai_summary,
-      COALESCE(cp.image_url, (ARRAY_AGG(so.image_url ORDER BY so.updated_at DESC))[1]) AS image_url,
-      COALESCE(cp.best_price, MIN(so.price)) AS price,
-      COALESCE((ARRAY_AGG(so.provider ORDER BY so.price ASC NULLS LAST, so.updated_at DESC))[1], 'KI Index') AS shop_name,
-      COALESCE(cp.offer_count, COUNT(so.*)::int) AS offer_count,
-      COALESCE(cp.source_count, COUNT(DISTINCT so.provider)::int) AS source_count,
-      COALESCE(cp.popularity_score, 0) AS popularity_score,
-      COALESCE(cp.freshness_priority, 0) AS freshness_priority,
-      COALESCE(cp.deal_score, 0) AS deal_score,
-      cp.deal_label,
-      cp.price_avg_30d,
-      cp.price_low_30d,
-      cp.price_high_30d,
-      COALESCE(cp.updated_at, NOW()) AS updated_at
-    FROM canonical_products cp
-    LEFT JOIN source_offers_v2 so ON so.canonical_product_id = cp.id AND so.is_active = true
-    GROUP BY cp.id
-    ORDER BY cp.popularity_score DESC, cp.freshness_priority DESC, updated_at DESC, price ASC NULLS LAST
+    WITH ranked AS (
+      SELECT
+        cp.id,
+        cp.title,
+        cp.brand,
+        cp.category,
+        cp.ai_summary,
+        COALESCE(cp.image_url, (ARRAY_AGG(so.image_url ORDER BY so.updated_at DESC))[1]) AS image_url,
+        COALESCE(cp.best_price, MIN(so.price)) AS price,
+        COALESCE((ARRAY_AGG(so.provider ORDER BY so.price ASC NULLS LAST, so.updated_at DESC))[1], 'KI Index') AS shop_name,
+        COALESCE(cp.offer_count, COUNT(so.*)::int) AS offer_count,
+        COALESCE(cp.source_count, COUNT(DISTINCT so.provider)::int) AS source_count,
+        COALESCE(cp.popularity_score, 0) AS popularity_score,
+        COALESCE(cp.freshness_priority, 0) AS freshness_priority,
+        COALESCE(cp.deal_score, 0) AS deal_score,
+        cp.deal_label,
+        cp.price_avg_30d,
+        cp.price_low_30d,
+        cp.price_high_30d,
+        COALESCE(cp.updated_at, NOW()) AS updated_at,
+        (COALESCE(cp.popularity_score, 0) * 0.35 + COALESCE(cp.freshness_priority, 0) * 0.35 + COALESCE(cp.deal_score, 0) * 0.20 + LEAST(COALESCE(cp.offer_count, 0), 10) * 3) AS trend_weight
+      FROM canonical_products cp
+      LEFT JOIN source_offers_v2 so ON so.canonical_product_id = cp.id AND so.is_active = true
+      GROUP BY cp.id
+      HAVING COALESCE(cp.best_price, MIN(so.price)) IS NOT NULL OR COALESCE(cp.image_url, (ARRAY_AGG(so.image_url ORDER BY so.updated_at DESC))[1]) IS NOT NULL
+      ORDER BY trend_weight DESC, updated_at DESC
+      LIMIT $2
+    )
+    SELECT *
+    FROM ranked
+    ORDER BY random() * GREATEST(trend_weight, 1) DESC, updated_at DESC
     LIMIT $1
-  `, [limit]).catch(() => ({ rows: [] }))
+  `, [limit, poolSize]).catch(() => ({ rows: [] }))
   return result.rows.map(mapCanonicalRow)
 }
 
