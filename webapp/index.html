@@ -7,85 +7,45 @@
     <style>
       .kauvio-legal-footer{
         max-width:1180px;
-        margin:40px auto 0;
-        padding:24px;
-        color:#475569;
+        margin:28px auto 0;
+        padding:16px 24px 28px;
+        color:#64748b;
         font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
       }
-      .kauvio-legal-card{
-        border:1px solid rgba(221,214,254,.9);
-        border-radius:28px;
-        background:rgba(255,255,255,.86);
-        box-shadow:0 18px 55px rgba(124,58,237,.12);
-        padding:22px;
-      }
-      .kauvio-legal-top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
-      .kauvio-legal-footer strong{color:#0f172a;font-size:1.12rem}
-      .kauvio-legal-footer p{margin:.35rem 0;line-height:1.55}
-      .kauvio-legal-footer a{color:#5b21b6;font-weight:800;text-decoration:none}
-      .kauvio-legal-footer a:hover{text-decoration:underline}
-      .kauvio-legal-links{display:flex;gap:10px;flex-wrap:wrap}
-      .kauvio-legal-links a,.kauvio-legal-footer summary{
-        display:inline-flex;
+      .kauvio-legal-mini{
+        display:flex;
         align-items:center;
-        border:1px solid #ddd6fe;
-        border-radius:999px;
-        padding:9px 13px;
-        color:#5b21b6;
-        background:#fff;
-        font-weight:800;
-        text-decoration:none;
-        cursor:pointer;
+        justify-content:center;
+        gap:12px;
+        flex-wrap:wrap;
+        border-top:1px solid rgba(221,214,254,.9);
+        padding-top:16px;
+        font-size:.92rem;
       }
-      .kauvio-legal-section{margin-top:12px;border-top:1px solid #e2e8f0;padding-top:12px}
-      .kauvio-legal-section h3{margin:.35rem 0;color:#0f172a;font-size:1.05rem}
-      .kauvio-legal-section ul{margin:.4rem 0 .2rem 1.2rem;padding:0;line-height:1.55}
-      .kauvio-legal-small{font-size:.88rem;color:#64748b}
-      @media(max-width:680px){.kauvio-legal-footer{padding:18px 14px;margin-top:24px}.kauvio-legal-card{border-radius:22px;padding:18px}.kauvio-legal-links a,.kauvio-legal-footer summary{width:100%;justify-content:center}}
+      .kauvio-legal-mini a{
+        color:#5b21b6;
+        font-weight:850;
+        text-decoration:none;
+      }
+      .kauvio-legal-mini a:hover{text-decoration:underline}
+      .kauvio-legal-dot{color:#c4b5fd}
+      @media(max-width:680px){.kauvio-legal-footer{padding:14px 16px 24px}.kauvio-legal-mini{gap:8px;font-size:.88rem}}
     </style>
     <script type="module" src="/src/main.jsx"></script>
   </head>
   <body>
     <div id="root"></div>
-    <footer class="kauvio-legal-footer" aria-label="Impressum und Datenschutz">
-      <div class="kauvio-legal-card">
-        <div class="kauvio-legal-top">
-          <div>
-            <strong>KAUVIO Schweiz · KI Produktsuche</strong>
-            <p>Inhaber: Stefan Henggeler</p>
-            <p>Kontakt: <a href="mailto:henggeler@gmx.ch">henggeler@gmx.ch</a></p>
-            <p class="kauvio-legal-small">Produkt-Preisvergleich, KI-Suche und gespeicherte Shop-Angebote für die Schweiz.</p>
-          </div>
-          <nav class="kauvio-legal-links" aria-label="Rechtliches">
-            <a href="#kauvio-impressum">Impressum</a>
-            <a href="#kauvio-datenschutz">Datenschutz</a>
-          </nav>
-        </div>
-
-        <details id="kauvio-impressum" class="kauvio-legal-section">
-          <summary>Impressum anzeigen</summary>
-          <h3>Impressum</h3>
-          <p><strong>KAUVIO</strong></p>
-          <p>Inhaber: Stefan Henggeler</p>
-          <p>Schweiz</p>
-          <p>Kontakt für Fragen: <a href="mailto:henggeler@gmx.ch">henggeler@gmx.ch</a></p>
-          <p class="kauvio-legal-small">KAUVIO ist eine KI-gestützte Produktsuche und ein Preisvergleich. Preise, Verfügbarkeit und Produktdaten können sich bei den Shops ändern. Massgeblich sind die Angaben des jeweiligen Shops.</p>
-        </details>
-
-        <details id="kauvio-datenschutz" class="kauvio-legal-section">
-          <summary>Datenschutz anzeigen</summary>
-          <h3>Datenschutz</h3>
-          <p>KAUVIO verarbeitet Daten, um Produktsuchen, Preisvergleiche, Shop-Weiterleitungen und die Verbesserung der KI-Suche bereitzustellen. Kontakt für Datenschutz- und Auskunftsfragen: <a href="mailto:henggeler@gmx.ch">henggeler@gmx.ch</a>.</p>
-          <ul>
-            <li>Suchanfragen können gespeichert werden, damit Ergebnisse schneller aus dem Cache geladen und relevante Produktdaten verbessert werden.</li>
-            <li>Beim Öffnen eines Shop-Angebots können technische Daten wie Zeitpunkt, Ziel-URL, Referrer und User-Agent protokolliert werden, um Weiterleitungen und Qualität zu prüfen.</li>
-            <li>Admin-Logins verwenden Tokens im Browser-Speicher, damit berechtigte Personen das Backend nutzen können.</li>
-            <li>Server-Logs können IP-Adresse, Browserdaten und technische Fehler enthalten. Diese Daten dienen Sicherheit, Betrieb und Fehleranalyse.</li>
-            <li>Produktdaten, Bilder, Preise und Verfügbarkeiten stammen aus angebundenen Shops oder öffentlich erreichbaren Quellen und werden zwischengespeichert.</li>
-          </ul>
-          <p>Es werden keine Zahlungsdaten verarbeitet. Beim Kauf gelten die Datenschutz- und Geschäftsbedingungen des jeweiligen Shops.</p>
-          <p class="kauvio-legal-small">Stand: Mai 2026. Diese Angaben können erweitert werden, sobald zusätzliche Kontakt-, Analyse- oder Affiliate-Dienste aktiv genutzt werden.</p>
-        </details>
+    <footer class="kauvio-legal-footer" aria-label="Rechtliches">
+      <div class="kauvio-legal-mini">
+        <span>© KAUVIO</span>
+        <span class="kauvio-legal-dot">·</span>
+        <span>Inhaber Stefan Henggeler</span>
+        <span class="kauvio-legal-dot">·</span>
+        <a href="mailto:henggeler@gmx.ch">Kontakt</a>
+        <span class="kauvio-legal-dot">·</span>
+        <a href="mailto:henggeler@gmx.ch?subject=Impressum%20KAUVIO">Impressum</a>
+        <span class="kauvio-legal-dot">·</span>
+        <a href="mailto:henggeler@gmx.ch?subject=Datenschutz%20KAUVIO">Datenschutz</a>
       </div>
     </footer>
   </body>
