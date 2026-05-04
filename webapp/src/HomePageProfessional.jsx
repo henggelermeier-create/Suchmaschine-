@@ -6,6 +6,35 @@ import { Bot, Trophy, Store, ArrowRight, Zap, ImageOff, Camera, X, ChevronLeft, 
 const formatPrice = (value) => value != null ? `CHF ${Number(value).toFixed(2)}` : 'Preis folgt'
 const cleanText = (value = '') => String(value || '').replace(/&shy;|­/g, '').replace(/\s+/g, ' ').trim()
 const PRODUCT_NOISE = /\b(auf lager|produktdatenblatt|datenblatt|lieferbar|sofort lieferbar|inkl\.|kommunikation:)\b/gi
+const QUICK_SEARCH_TERMS = [
+  'Nintendo Switch OLED',
+  'iPhone 16 Pro 256GB',
+  'Samsung Galaxy S24 Ultra',
+  'MacBook Air M4',
+  'AirPods Pro 2',
+  'Dyson V15 Detect',
+  'PlayStation 5 Slim',
+  'Sony WH-1000XM5',
+  'Apple Watch Ultra 2',
+  'Garmin Forerunner 965',
+  'LG OLED TV 55 Zoll',
+  'Gaming Laptop RTX 4070',
+  'Ecovacs Deebot X5 Omni',
+  'Bosch Akku Bohrmaschine',
+  'Samsung OLED Monitor 27 Zoll',
+  'iPad Air 11 Zoll',
+  'JBL Bluetooth Lautsprecher',
+  'Canon EOS R50',
+]
+
+function pickQuickTerms(count = 4) {
+  const shuffled = [...QUICK_SEARCH_TERMS]
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled.slice(0, count)
+}
 
 function imageFor(item = {}) { return item.image_url || item.imageUrl || item.thumbnail_url || item.thumbnailUrl || null }
 function galleryFor(item = {}) { return [...new Set([imageFor(item), ...((item.image_gallery || item.images || []).filter(Boolean))].filter(Boolean))].slice(0, 10) }
@@ -127,6 +156,7 @@ export default function HomePageProfessional({ query, setQuery, activeQuery, loa
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const quickTerms = useMemo(() => pickQuickTerms(4), [])
   useEffect(() => { setSelected(null); setDetail(null) }, [activeQuery])
   const sectionTitle = activeQuery ? 'Deine Ergebnisse' : 'Trending Deals'
   const sectionHint = activeQuery ? `Resultate für „${activeQuery}“` : 'Kurz, klar, schnell.'
@@ -147,7 +177,7 @@ export default function HomePageProfessional({ query, setQuery, activeQuery, loa
         <h1>Such. Find. Spar.</h1>
         <p>Schweizer Shops. Echte Angebote. Sofort sichtbar.</p>
         <SearchSuggestBox query={query} setQuery={setQuery} onSubmit={onSearch} placeholder="Was suchst du?" inlineResults />
-        <div className="home-quick-row">{['iPhone 16 Pro', 'AirPods Pro', 'Dyson V15', 'Gaming Laptop'].map((term) => <button key={term} type="button" onClick={() => onSearch?.(term)}>{term}</button>)}</div>
+        <div className="home-quick-row">{quickTerms.map((term) => <button key={term} type="button" onClick={() => onSearch?.(term)}>{term}</button>)}</div>
       </section>
       {liveSearch ? <section className="home-live-strip"><Bot size={16} /> KI sucht weiter und speichert neue Treffer.</section> : null}
       <section id="home-results" className="home-products-section">
