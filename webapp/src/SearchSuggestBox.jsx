@@ -12,7 +12,7 @@ async function fetchSuggestions(query) {
   return data.items || []
 }
 
-export default function SearchSuggestBox({ query, setQuery, onSubmit, placeholder }) {
+export default function SearchSuggestBox({ query, setQuery, onSubmit, placeholder, inlineResults = false }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
@@ -49,11 +49,17 @@ export default function SearchSuggestBox({ query, setQuery, onSubmit, placeholde
   function selectItem(item) {
     setQuery(item.title)
     setOpen(false)
-    window.location.hash = `/product/${item.slug}`
+    if (inlineResults) onSubmit?.(item.title)
+    else window.location.hash = `/product/${item.slug}`
+  }
+
+  function submit() {
+    setOpen(false)
+    onSubmit?.(query)
   }
 
   return (
-    <div ref={rootRef} className="searchbox-root">
+    <div ref={rootRef} className="searchbox-root searchbox-root-front">
       <div className="searchbox-shell">
         <div className="searchbox-input-wrap">
           <Search className="searchbox-icon" />
@@ -61,17 +67,15 @@ export default function SearchSuggestBox({ query, setQuery, onSubmit, placeholde
             value={query}
             onFocus={() => { if (items.length) setOpen(true) }}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onSubmit?.(query)
-            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
             placeholder={placeholder}
           />
         </div>
-        <button className="btn btn-primary" onClick={() => onSubmit?.(query)}>Suche starten</button>
+        <button className="btn btn-primary" onClick={submit}>Suche starten</button>
       </div>
 
       {open && (loading || items.length > 0 || String(query || '').trim().length >= 2) ? (
-        <div className="suggest-dropdown">
+        <div className="suggest-dropdown home-suggest-dropdown">
           {loading ? <div className="suggest-empty">Vorschläge werden geladen…</div> : null}
           {!loading && items.length === 0 ? <div className="suggest-empty">Keine Vorschläge gefunden.</div> : null}
           {!loading && items.map((item, index) => (
