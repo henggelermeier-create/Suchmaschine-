@@ -10,7 +10,8 @@ function normalizeKey(input = '') {
 }
 
 const PRODUCT_EXCLUDE_RE = /(gutschein|geschenkgutschein|gift\s*card|voucher|rabattcode|coupon|blog|ratgeber|news|artikel|beitrag|magazin|forum|datenblatt|produktdatenblatt|pdf|download|ersatzteil|zubehoer\s*set|versicherung|garantieverlängerung|service|reparatur|abo|subscription|mitgliedschaft|kurs|ticket|event)/i
-const PRODUCT_SIGNAL_RE = /(iphone|ipad|macbook|galaxy|pixel|watch|airpods|kopfhörer|kopfhoerer|headphone|laptop|notebook|monitor|tv|oled|qled|tablet|kamera|speaker|lautsprecher|dyson|staubsauger|saugroboter|kaffeemaschine|bohrmaschine|akku|drucker|ssd|router|konsole|playstation|xbox|nintendo|smartphone|handy|gaming|sneaker|schuhe|jacke|rucksack|grill|velo|bike)/i
+const PRODUCT_SIGNAL_RE = /(iphone|ipad|macbook|galaxy|pixel|watch|airpods|kopfhörer|kopfhoerer|headphone|laptop|notebook|monitor|tv|oled|qled|tablet|kamera|speaker|lautsprecher|dyson|staubsauger|saugroboter|kaffeemaschine|bohrmaschine|akku|drucker|ssd|router|konsole|playstation|xbox|nintendo|smartphone|handy|gaming|sneaker|schuhe|jacke|rucksack|grill|velo|bike|trampolin)/i
+const GENERIC_MODEL_TOKENS = new Set(['generaluberholt', 'gebraucht', 'refurbished', 'reconditioned', 'handy', 'smartphone', 'black', 'white', 'schwarz', 'weiss', 'titanium', 'android', 'ios', 'zoll', 'cm', 'gb', 'tb', 'produkt', 'produktdatenblatt', 'auf', 'lager'])
 
 function canonicalSlug(id) {
   return `canonical-${id}`
@@ -36,6 +37,11 @@ function isLikelyProduct(row = {}) {
 }
 
 function decisionFromCanonical(row) {
+  const price = row.price ?? row.best_price
+  const avg = row.price_avg_30d
+  const low = row.price_low_30d
+  if (price != null && low != null && Number(price) <= Number(low) * 1.03) return { label: 'Top Preis' }
+  if (price != null && avg != null && Number(price) <= Number(avg) * 0.95) return { label: 'Guter Preis' }
   if (row.deal_label) return { label: row.deal_label }
   if (Number(row.deal_score || 0) >= 90) return { label: 'Top Preis' }
   if (Number(row.deal_score || 0) >= 78) return { label: 'Guter Preis' }
@@ -71,6 +77,54 @@ function mapCanonicalRow(row) {
 
 function mapProductRows(rows = []) {
   return rows.map(mapCanonicalRow).filter(isLikelyProduct)
+}
+
+function comparisonTokens(row = {}) {
+  const titleTokens = normalizeKey(row.title || '').split(' ').filter(Boolean)
+  const brandTokens = normalizeKey(row.brand || '').split(' ').filter(Boolean)
+  const merged = [...brandTokens, ...titleTokens]
+  const out = []
+  for (const token of merged) {
+    if (token.length < 2) continue
+    if (GENERIC_MODEL_TOKENS.has(token)) continue
+    if (!out.includes(token)) out.push(token)
+    if (out.length >= 5) break
+  }
+  return out
+}
+
+function comparisonPatterns(row = {}) {
+  const tokens = comparisonTokens(row)
+  const patterns = []
+  if (tokens.length >= 4) patterns.push(`%${tokens.slice(0, 4).join('%')}%`)
+  if (tokens.length >= 3) patterns.push(`%${tokens.slice(0, 3).join('%')}%`)
+  if (tokens.length >= 2) patterns.push(`%${tokens.slice(0, 2).join('%')}%`)
+  return [...new Set(patterns)].slice(0, 3)
+}
+
+function cleanShopName(value = '') {
+  return String(value || 'Shop').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function bestOfferPerShop(offers = []) {
+  const map = new Map()
+  for (const offer of offers) {
+    if (offer.price == null) continue
+    const shop = cleanShopName(offer.shop_name)
+    const key = shop.toLowerCase()
+    const normalized = { ...offer, shop_name: shop, price: Number(offer.price), affiliate_url: offer.product_url || null, redirect_url: offer.product_url || null, is_hidden: false }
+    const previous = map.get(key)
+    if (!previous || normalized.price < previous.price) map.set(key, normalized)
+  }
+  return [...map.values()].sort((a, b) => a.price - b.price)
+}
+
+function priceJudgement({ price, avg, low, offerCount }) {
+  if (price == null) return 'KI Einschätzung: Preis wird noch geprüft.'
+  if (low != null && price <= Number(low) * 1.03) return 'KI Einschätzung: Top Preis · nahe am 30-Tage-Tief.'
+  if (avg != null && price <= Number(avg) * 0.95) return 'KI Einschätzung: Guter Preis · unter dem 30-Tage-Durchschnitt.'
+  if (offerCount >= 3) return 'KI Einschätzung: Vergleich vorhanden · Preis fair prüfen.'
+  return 'KI Einschätzung: Einzelpreis · weitere Shops werden geprüft.'
 }
 
 export async function fetchCanonicalSearchResults(pool, query = '', limit = 60) {
@@ -234,50 +288,65 @@ export async function fetchCanonicalProductBySlug(pool, slug) {
   if (!Number.isFinite(canonicalId)) return null
 
   const product = await pool.query(
-    `SELECT id, title, brand, category, ai_summary, image_url, best_price, best_price_currency, offer_count, source_count, popularity_score, freshness_priority, deal_score, deal_label, price_avg_30d, price_low_30d, price_high_30d, updated_at
+    `SELECT id, title, brand, category, ai_summary, image_url, best_price, best_price_currency, offer_count, source_count, popularity_score, freshness_priority, deal_score, deal_label, price_avg_30d, price_low_30d, price_high_30d, model_key, canonical_key, updated_at
      FROM canonical_products cp WHERE id = $1 AND ${productWhereSql('cp')} LIMIT 1`,
     [canonicalId]
   )
   if (!product.rows.length) return null
 
-  const offers = await pool.query(
-    `SELECT provider AS shop_name, price, currency, COALESCE(deeplink_url, source_product_url) AS product_url, source_product_url, image_url, updated_at
-     FROM source_offers_v2
-     WHERE canonical_product_id = $1 AND is_active = true AND price IS NOT NULL
-     ORDER BY price ASC NULLS LAST, updated_at DESC
-     LIMIT 30`,
-    [canonicalId]
-  )
-
-  const similarItems = await fetchSimilarCanonicalProducts(pool, canonicalId, 6)
-  const suggestions = await fetchRelatedSuggestions(pool, product.rows[0]?.title || '', 8)
-
   const row = product.rows[0]
-  const normalizedOffers = offers.rows.map((offer) => ({
-    ...offer,
-    shop_name: String(offer.shop_name || '').replace(/_/g, ' '),
-    price: offer.price != null ? Number(offer.price) : null,
-    affiliate_url: offer.product_url || null,
-    redirect_url: offer.product_url || null,
-    is_hidden: false,
-  })).filter((offer) => offer.price != null)
+  const patterns = comparisonPatterns(row)
+  const offers = await pool.query(
+    `SELECT DISTINCT ON (LOWER(so.provider), so.source_product_url)
+        so.provider AS shop_name,
+        so.price,
+        so.currency,
+        COALESCE(so.deeplink_url, so.source_product_url) AS product_url,
+        so.source_product_url,
+        so.image_url,
+        so.updated_at,
+        cp.id AS matched_canonical_id
+     FROM source_offers_v2 so
+     JOIN canonical_products cp ON cp.id = so.canonical_product_id
+     WHERE so.is_active = true
+       AND so.price IS NOT NULL
+       AND COALESCE(cp.is_hidden, false) = false
+       AND (
+         so.canonical_product_id = $1
+         OR (NULLIF($2::text, '') IS NOT NULL AND cp.model_key = $2)
+         OR (NULLIF($3::text, '') IS NOT NULL AND cp.canonical_key = $3)
+         OR (NULLIF($4::text, '') IS NOT NULL AND LOWER(COALESCE(cp.brand, '')) = LOWER($4) AND (cp.title ILIKE ANY($5::text[]) OR so.offer_title ILIKE ANY($5::text[])))
+         OR (cp.title ILIKE ANY($5::text[]) OR so.offer_title ILIKE ANY($5::text[]))
+       )
+     ORDER BY LOWER(so.provider), so.source_product_url, so.price ASC NULLS LAST, so.updated_at DESC
+     LIMIT 120`,
+    [canonicalId, row.model_key || '', row.canonical_key || '', row.brand || '', patterns.length ? patterns : [`%${String(row.title || '').slice(0, 24)}%`]]
+  ).catch(() => ({ rows: [] }))
+
+  const normalizedOffers = bestOfferPerShop(offers.rows).slice(0, 40)
   const cheapest = normalizedOffers[0] || null
   const fallbackImage = normalizedOffers.find((offer) => offer.image_url)?.image_url || null
+  const offerCount = normalizedOffers.length
+  const bestPrice = cheapest?.price ?? (row.best_price != null ? Number(row.best_price) : null)
+  const aiSummary = priceJudgement({ price: bestPrice, avg: row.price_avg_30d != null ? Number(row.price_avg_30d) : null, low: row.price_low_30d != null ? Number(row.price_low_30d) : null, offerCount })
+
+  const similarItems = await fetchSimilarCanonicalProducts(pool, canonicalId, 6)
+  const suggestions = await fetchRelatedSuggestions(pool, row.title || '', 8)
 
   return {
     slug: canonicalSlug(row.id),
     title: row.title,
     brand: row.brand,
     category: 'Produkt',
-    ai_summary: row.ai_summary,
+    ai_summary: aiSummary,
     image_url: row.image_url || fallbackImage,
-    price: cheapest?.price ?? (row.best_price != null ? Number(row.best_price) : null),
-    currency: row.best_price_currency || 'CHF',
+    price: bestPrice,
+    currency: row.best_price_currency || cheapest?.currency || 'CHF',
     shop_name: cheapest?.shop_name || 'KI Index',
     product_url: cheapest?.product_url || null,
     redirect_url: cheapest?.redirect_url || null,
-    offer_count: Number(row.offer_count || normalizedOffers.length || 0),
-    source_count: Number(row.source_count || 0),
+    offer_count: offerCount,
+    source_count: offerCount,
     popularity_score: Number(row.popularity_score || 0),
     freshness_priority: Number(row.freshness_priority || 0),
     deal_score: Number(row.deal_score || 0),
@@ -285,7 +354,7 @@ export async function fetchCanonicalProductBySlug(pool, slug) {
     price_avg_30d: row.price_avg_30d != null ? Number(row.price_avg_30d) : null,
     price_low_30d: row.price_low_30d != null ? Number(row.price_low_30d) : null,
     price_high_30d: row.price_high_30d != null ? Number(row.price_high_30d) : null,
-    decision: decisionFromCanonical(row),
+    decision: decisionFromCanonical({ ...row, price: bestPrice, offer_count: offerCount }),
     offers: normalizedOffers,
     similarItems,
     suggestions,
