@@ -40,6 +40,7 @@ function imageFor(item = {}) { return item.image_url || item.imageUrl || item.th
 function galleryFor(item = {}) { return [...new Set([imageFor(item), ...((item.image_gallery || item.images || []).filter(Boolean))].filter(Boolean))].slice(0, 10) }
 function iconForItem(item) { const label = String(item.decision?.label || item.deal_label || '').toLowerCase(); if (label.includes('top') || label.includes('best')) return Trophy; if (Number(item.offer_count || 0) >= 3) return Store; return Bot }
 function toneForItem(item) { const label = String(item.decision?.label || item.deal_label || '').toLowerCase(); if (label.includes('top') || label.includes('best')) return 'tone-hot'; if (Number(item.offer_count || 0) >= 3) return 'tone-mint'; return 'tone-violet' }
+function conditionLabel(value = 'new') { if (value === 'refurbished') return 'Generalüberholt'; if (value === 'used') return 'Occasion'; return 'Neu' }
 function productTitle(item = {}) {
   const title = cleanText(item.title || item.offer_title || 'Produkt')
   const withoutTail = title.replace(PRODUCT_NOISE, ' ').replace(/\s+/g, ' ').trim()
@@ -59,6 +60,9 @@ function normalizedShopName(offer = {}) { return cleanText(offer.shop_name || of
 function sortedOffers(product = {}) {
   const offers = Array.isArray(product.offers) ? product.offers : []
   return [...offers].filter(Boolean).sort((a, b) => {
+    const aSame = a.is_same_condition === false ? 1 : 0
+    const bSame = b.is_same_condition === false ? 1 : 0
+    if (aSame !== bSame) return aSame - bSame
     const ap = a.price == null ? Number.POSITIVE_INFINITY : Number(a.price)
     const bp = b.price == null ? Number.POSITIVE_INFINITY : Number(b.price)
     return ap - bp
@@ -93,16 +97,22 @@ function InlineProductGallery({ item }) {
 }
 
 function ProductOfferList({ product }) {
-  const offers = sortedOffers(product).slice(0, 8)
-  const best = offers[0]
+  const offers = sortedOffers(product).slice(0, 12)
+  const targetCondition = product.condition || 'new'
+  const sameOffers = offers.filter((offer) => offer.is_same_condition !== false)
+  const otherOffers = offers.filter((offer) => offer.is_same_condition === false)
+  const best = sameOffers[0] || offers[0]
   if (!offers.length) return <div className="detail-offers empty"><h4>Shop-Preise</h4><p>Noch kein Shop-Angebot gespeichert. Die KI sucht weiter.</p></div>
+  const renderOffer = (offer, index, isOther = false) => {
+    const isBest = !isOther && index === 0
+    return <a key={`${offer.id || offer.shop_name || offer.provider}-${offer.condition || 'new'}-${index}`} className={isBest ? 'detail-offer-row best' : 'detail-offer-row'} href={offer.redirect_url || offer.product_url || offer.deeplink_url || '#'} target="_blank" rel="noreferrer"><span>{normalizedShopName(offer)}</span>{isBest ? <em>Bester Preis</em> : <small>{conditionLabel(offer.condition || targetCondition)}</small>}<b>{formatPrice(offer.price)}</b><ArrowRight size={15} /></a>
+  }
   return (
     <div className="detail-offers clean-offers">
-      <div className="offer-header-clean"><div><h4>Shop-Preise</h4><p>Der beste Preis ist klar markiert.</p></div>{best ? <span className="best-price-pill">Bester Preis {formatPrice(best.price)}</span> : null}</div>
-      {offers.map((offer, index) => {
-        const isBest = index === 0
-        return <a key={`${offer.id || offer.shop_name || offer.provider}-${index}`} className={isBest ? 'detail-offer-row best' : 'detail-offer-row'} href={offer.redirect_url || offer.product_url || offer.deeplink_url || '#'} target="_blank" rel="noreferrer"><span>{normalizedShopName(offer)}</span>{isBest ? <em>Bester Preis</em> : <small>Weitere Option</small>}<b>{formatPrice(offer.price)}</b><ArrowRight size={15} /></a>
-      })}
+      <div className="offer-header-clean"><div><h4>Shop-Preise</h4><p>Vergleich nur für identischen Zustand: {conditionLabel(targetCondition)}.</p></div>{best ? <span className="best-price-pill">Bester {conditionLabel(targetCondition)} Preis {formatPrice(best.price)}</span> : null}</div>
+      {sameOffers.map((offer, index) => renderOffer(offer, index, false))}
+      {otherOffers.length ? <div className="condition-warning">Andere Zustände separat: nicht direkt mit {conditionLabel(targetCondition)} vergleichen.</div> : null}
+      {otherOffers.map((offer, index) => renderOffer(offer, index, true))}
     </div>
   )
 }
@@ -111,10 +121,12 @@ function FocusedProductDetails({ item, onBack, loading }) {
   const [showTech, setShowTech] = useState(false)
   const specEntries = specsFor(item)
   const offers = sortedOffers(item)
-  const best = offers[0]
+  const targetCondition = item.condition || 'new'
+  const sameOffers = offers.filter((offer) => offer.is_same_condition !== false)
+  const best = sameOffers[0] || offers[0]
   const title = productTitle(item)
   const extra = detailText(item)
-  const shopCount = item.offer_count || offers.length || 0
+  const shopCount = item.offer_count || sameOffers.length || offers.length || 0
   const bestPrice = best?.price ?? item.price
   const sourceLabel = best ? normalizedShopName(best) : (item.shop_name || item.provider || 'KI Vergleich')
   return (
@@ -125,11 +137,12 @@ function FocusedProductDetails({ item, onBack, loading }) {
       <div className="product-clean-info">
         <span className="chip tone-violet"><Camera size={14} /> Produktdetails</span>
         <h2>{title}</h2>
-        <p className="ai-summary-clean">KI Einschätzung: {shopCount > 1 ? 'Vergleich vorhanden' : 'Ein Shop gefunden'} · bester sichtbarer Preis bei {sourceLabel}.</p>
-        <div className="focused-price-row"><strong>{formatPrice(bestPrice)}</strong><span>{shopCount} {shopCount === 1 ? 'Shop' : 'Shops'}</span><span>{sourceLabel}</span></div>
+        <p className="ai-summary-clean">{item.ai_summary || `KI Einschätzung: ${shopCount > 1 ? 'Vergleich vorhanden' : 'Ein Shop gefunden'} · bester sichtbarer Preis bei ${sourceLabel}.`}</p>
+        <div className="focused-price-row"><strong>{formatPrice(bestPrice)}</strong><span>{shopCount} {shopCount === 1 ? 'Shop' : 'Shops'}</span><span>{conditionLabel(targetCondition)}</span><span>{sourceLabel}</span></div>
+        {item.has_mixed_conditions ? <p className="condition-note">Hinweis: Generalüberholt, Occasion und Neuware werden getrennt verglichen.</p> : null}
         {extra ? <p className="compact-product-text">{extra}</p> : null}
         <button className="tech-toggle" onClick={() => setShowTech(!showTech)}>{showTech ? <ChevronUp size={16} /> : <ChevronDown size={16} />} Technische Details {showTech ? 'ausblenden' : 'anzeigen'}</button>
-        {showTech ? <div className="spec-grid compact-specs">{specEntries.length ? specEntries.map(([key, value]) => <div key={key}><b>{key}</b><span>{String(value)}</span></div>) : <><div><b>Quelle</b><span>{sourceLabel}</span></div><div><b>Vergleich</b><span>{shopCount} Angebote</span></div></>}</div> : null}
+        {showTech ? <div className="spec-grid compact-specs">{specEntries.length ? specEntries.map(([key, value]) => <div key={key}><b>{key}</b><span>{String(value)}</span></div>) : <><div><b>Zustand</b><span>{conditionLabel(targetCondition)}</span></div><div><b>Vergleich</b><span>{shopCount} Angebote</span></div></>}</div> : null}
         <ProductOfferList product={item} />
       </div>
     </section>
@@ -143,9 +156,9 @@ function HomeResultCard({ item, active, onSelect }) {
     <button type="button" className={active ? 'home-product-card active' : 'home-product-card'} onClick={() => onSelect?.(item)}>
       <MiniProductImage item={item} />
       <div className="home-product-content">
-        <div className="result-card-top"><span className={`chip ${tone}`}><Icon size={14} /> {item.decision?.label || item.deal_label || 'KI Match'}</span><span className="muted small">{item.offer_count || 0} Shops</span></div>
+        <div className="result-card-top"><span className={`chip ${tone}`}><Icon size={14} /> {item.decision?.label || item.deal_label || 'KI Match'}</span><span className="muted small">{conditionLabel(item.condition || 'new')}</span></div>
         <div className="result-card-title">{productTitle(item)}</div>
-        <div className="result-card-meta">{item.brand || 'KI'} · {item.shop_name || 'DB Cache'}</div>
+        <div className="result-card-meta">{item.brand || 'KI'} · {item.shop_name || 'DB Cache'} · {item.offer_count || 0} Shops</div>
         <div className="result-card-bottom"><strong className="price-inline">{formatPrice(item.price)}</strong><span className="arrow-circle"><ArrowRight size={16} /></span></div>
       </div>
     </button>
